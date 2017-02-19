@@ -1,0 +1,125 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>EECS 345: Programming Project, Part 1</title>
+</head>
+
+<body>
+<h2>EECS 345: Programming Language Concepts</h2>
+<h2>Programming Project, Part 1</h2>
+<h3>Due Monday, February 20 by 11:59 pm</h3>
+
+<p><em>For this and all programming project's, you are welcome to work in groups of up to three.  The names of all group members should
+appear at the top of the file, and every member should submit the project on blackboard.
+All team members are responsible for understanding the code submitted in their name.
+</em></p>
+
+<p>In this homework, you are to create an interpreter for a very simple Java/C-ish language.
+The language has variables, assignment statements, mathematical expressions, comparison
+operators, boolean operators, if statements, while statements, and return statements. </p>
+
+<p>An example program is as follows:
+<pre>
+var x;
+x = 10;
+var y = 3 * x + 5;
+while (y % x != 3)
+  y = y + 1;
+if (x &gt; y)
+  return x;
+else if (x * x &gt; y)
+  return x * x;
+else if (x * (x + x) &gt; y)
+  return x * (x + x);
+else
+  return y - 1;
+</pre>
+</p>
+
+<p>Note that braces, <tt>{</tt> and <tt>}</tt>, are not implemented. </p>
+
+<p>The following mathematical operations
+are implemented : <tt>+, -, *, /, %</tt> (including the unary <tt>-</tt>), the following comparison operators are implemented:
+<tt>==, !=, <, >, <=. >=</tt>, and the following boolean operators: <tt>&&, ||, !</tt>.
+Variables may store values of type <tt>int</tt> as well as <tt>true</tt> and <tt>false</tt>.
+You do not have to detect an error if a program uses a type incorrectly, but it is not hard to add the error check.)
+Note that you do not have to implement short-circuit evaluation of <tt>&&</tt> or <tt>||</tt>.</p>
+
+<p><strong>For those seeking an extra challenge:</strong>  The parser supports nested assignment statements as well as assignments inside expressions.
+Try writing your interpreter so that assignment operators return a value as well as initialize a variable:
+<pre>
+var x;
+var y;
+x = y = 10;
+if ((x = x + 1) > y)
+  return x;
+else
+  return y;
+</pre></p>
+
+<p><strong>General guidelines</strong></p>
+
+<p>You are to write your interpreter in Scheme using the functional programming style.  For full
+marks, you should not use variables,  only functions and parameters.</p>
+
+<p>Your program should clearly distinguish, by naming convention and code organization, functions that are doing the <tt>M_state</tt> operations from ones doing the <tt>M_value</tt> and <tt>M_boolean</tt> operations.
+You do not have to call them <tt>M_</tt>, but your naming convention should be consistent.</p>
+
+<p>A parser is provided
+for you called <tt>simpleParser.scm</tt>.  You will also
+have to get the file <tt>lex.scm</tt>.
+You can use the parser in your program by including the line <tt>(load "simpleParser.scm")</tt> at the top of your homework file.  The command assumes <tt>simpleParser.scm</tt> is in
+the same directory as your homework file.  If it is not, you will have to include the path
+to the file in the load command.</p>
+
+<p>  To
+use the parser, type the code into a file, and call <tt>(parser "<em>filename</em>")</tt>.  The
+parser will return the parse tree in list format.  For example, the parse tree of the above
+code is: <br>
+<tt>
+((var x)
+ (= x 10)
+ (var y (+ (* 3 x) 5))
+ (while (!= (% y x) 3) (= y (+ y 1)))
+ (if (> x y) (return x) (if (> (* x x) y) (return (* x x)) (if (> (* x (+ x x)) y) (return (* x (+ x x))) (return (- y 1))))))
+</tt></p>
+
+<p>Formally, a parse tree is a list where each sublist corresponds to a statement.  The different statements are:
+<table>
+<tr><td>variable declaration</td> <td><tt>(var </tt> <em>variable</em><tt>)</tt> or <tt>(var </tt> <em>variable value</em><tt>)</tt></td> </tr>
+<tr><td>assignment</td> <td><tt>(= </tt><em>variable</em> <em>expression</em><tt>)</tt></td></tr>
+<tr><td>return</td> <td><tt>(return </tt><em>expression</em><tt>)</tt></td>
+<tr><td>if statement</td> <td><tt>(if</tt> <em>conditional</em> <em>then-statement</em> <em>optional-else-statement</em><tt>)</tt></td></tr>
+<tr><td>while statement</td> <td><tt>(while</tt> <em>conditional</em> <em>body-statement</em><tt)</tt></td></tr></table>
+</p>
+<p>You should write a function called <tt>interpret</tt> that takes a filename, calls <tt>parser</tt>
+with the filename, evaluates the parse tree returned by <tt>parser</tt>, and returns the
+proper value.
+You are to maintain
+a state for the variables and return an error message if the user attempts to use a variable
+before it is declared.  You can use the Scheme function <tt>(error ...)</tt> to return the error.</p>
+
+<p><strong>The State</strong></p>
+
+<p>Your state needs to store binding pairs, but the exact implementation is up to you. I recommend either a list of binding pairs (for example: <tt>((x 5) (y 12) ...)</tt> ),
+or two lists, one with the variables and one with the values (for example: <tt>((x y ...) (5 12 ...))</tt>).  The first option will be simpler to program, but the second will
+be more easily adapted supporting objects at the end of the course.
+The exact way you decide to implement looking up a binding, creating a new binding, or updating an existing binding is up to you.  It is not essential that you
+be efficient here, just do something that works.  With such a simple language, an efficient state is unneeded.</p>
+
+<p>What you <em>do</em> have to do is use abstraction to separate your state from the rest of your interpreter.  As we increase the number of language features we have in future parts
+of the project, we will need to change how the state is implemented.  If you correctly use abstraction, you will be able to redesign the state without changing the implementation
+of your interpreter.  In this case, that means that the interpreter does not know about the structure of the state.  Instead, you have generic functions that the interpreter can call
+to manipulate the state.</p>
+
+<p><strong>Finally...</strong></p>
+<p>If you are using DrRacket, you will probably need to change the language to one of the more advanced teaching
+languages (if you want more descriptive error messages).  The language "Pretty Big" will work, but it does not give
+very informative error messages.</p>
+
+<p>Please save your interpreter as a Scheme file with either the <tt>.scm</tt> or <tt>.rkt</tt> extension. </p>
+
+</body>
+
+</html>
