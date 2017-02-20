@@ -24,6 +24,10 @@
 ; Two specially named erros
 (define (err-unimplemented) "Feature unimplemented yet!")
 (define (err-noValue) "Not a value")
+; Two error-handlers
+(define err-stdReport errorMsg)
+(define (err-throw e)
+    (error "Error:\n Interpretation Failed due to\n" (e)) )
 
 ; The Continuation type k
 ; Continuation contiains three execution path
@@ -50,7 +54,9 @@
         (lambda (rst)
           (exec (cdr stmt-list) (result-env rst) k) )))))
 
-(define (interpret file)
+(define (interpret file) (interpret! file err-throw))
+
+(define (interpret! file err-cont)
   
   (define prog (parser file))
   (define env (env-make))
@@ -61,8 +67,6 @@
               (error? (env-return terminate-env)))
           (dispValue (env-return terminate-env))
           (error-handler (lambda () "Error: Missing return value!")))))
-
-  (define err-cont err-stdReport)
   
   (define k (k-make normal-cont
                     err-cont
@@ -186,9 +190,7 @@
       [else ((k-err k)
              (lambda () "Type Error, if condition is not boolean") )])))))
 
-(define err-stdReport errorMsg)
-(define (err-throw e)
-    (error "Intepretation Failed:" (e)) )
+
 
 (define (dispValue v)
   (cond
@@ -211,7 +213,7 @@
         (begin
           (display count)
           (display ':)
-          (display (interpret (make-path count)))
+          (display (interpret! (make-path count) err-stdReport))
           (newline)
           (testall-helper (add1 count) max))
         (display "Test completed")))
