@@ -1,4 +1,10 @@
-(require racket/trace)
+; Group Members
+; LAST NAME, First name
+; YAO, Yue
+; QI, Peiyuan
+; YAO, Kaiqi
+
+;(require racket/trace)
 
 (load "simpleParser.scm")
 (load "env.scm")
@@ -53,7 +59,7 @@
     (let ([terminate-env (result-env rst)])
       (if (or (env-hasReturn? terminate-env)
               (error? (env-return terminate-env)))
-          (env-return terminate-env)
+          (dispValue (env-return terminate-env))
           (error-handler (lambda () "Error: Missing return value!")))))
 
   (define err-cont err-stdReport)
@@ -186,8 +192,8 @@
 
 (define (dispValue v)
   (cond
-    [(equal v #t) 'true]
-    [(equal v #f) 'false]
+    [(equal? v #t) 'true]
+    [(equal? v #f) 'false]
     [else v] ))
 
 ; (trace interpret)
