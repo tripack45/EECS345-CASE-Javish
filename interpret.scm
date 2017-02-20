@@ -4,7 +4,7 @@
 (load "env.scm")
 (load "common.scm")
 
-(define sampleProg (parser "test.javaish"))
+;(define sampleProg (parser "test.javaish"))
 
 ; The result type
 ; Result type encloses information about the execution result
@@ -183,6 +183,12 @@
 (define err-stdReport errorMsg)
 (define (err-throw e)
     (error "Intepretation Failed:" (e)) )
+
+(define (dispValue v)
+  (cond
+    [(equal v #t) 'true]
+    [(equal v #f) 'false]
+    [else v] ))
 
 ; (trace interpret)
 ; (trace M-stat)
