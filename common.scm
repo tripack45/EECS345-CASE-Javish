@@ -54,7 +54,10 @@
 
 ; Internal Exception Type
 
-(define (iException text) (lambda () text))
+(define (iException text)
+  (lambda () text))
+
+(define iException? procedure?)
 
 (define (iException+ list)
   (define (form-string l)
@@ -75,9 +78,17 @@
 
   (iException (form-string list)) )
       
-;; Dictionary Type
+; Dictionary Type
 
 (define (dict-make) '())
+
+(define (dict-make+ keylist vallist)
+  (if (null? keylist) '()
+      (if (null? vallist)
+          (dict-add (dict-make+ (cdr keylist) vallist)
+                    (car keylist) #f)
+          (dict-add (dict-make+ (cdr keylist) (cdr vallist))
+                    (car keylist) (car vallist)) )))
 
 (define (dict-pair-make key val)
   (list key (box val)) )
