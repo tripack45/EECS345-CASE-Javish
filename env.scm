@@ -8,78 +8,90 @@
 (define (assert-attr attr val)
   (lambda (x) (eq? (attr x) val)))
 
-(define (env-make)
-  '())
+; The 'value' class
 
+(define (value-make val type)
+  (dict-make+ (list 'v 'type 'ref)
+              (list val type #f)))
 
-(define (var-make id value)
-  (list id value))
-  
-(define (var-name var)
-  (car var))
+(define (value-ref-make ref type)
+  (dict-make+ (list 'v 'type 'ref)
+              (list ref type ref)))
 
-(define (var-value var)
-  (cadr var))
+(define (value-v value) (dict-get value 'v))
 
-(define (var-assignTo var value)
-  (var-make (var-name var) value))
+(define (value-type value) (dict-get value 'type))
 
-; get an var by id from env
+(define (value-ref? value) (dict-get value 'ref))
+
+; ========= 'env' class =============
+; Note due to involvement of "boxes" now
+; 'env' objects are stateful objects.
+; in particular, modification of variable value
+; in the env class is a STATEFUL operation
+
+(define env-make dict-make)
+(define (env-make+ l1 l2)
+  (foldl (lambda (id value env)
+           (env-defineVar env id value) )
+         (env-make)
+         l1 l2))
+
+; get the left-value of id from env
 ; REQUIRE: that variable is defined
 (define (env-getVar env id)
-   (let ((var (filter+ (assert-attr var-name id) env)))
-    (cond
-      ((> (length var) 1) (lambda () "MultiDef"))
-      ((pair? var) (car var))
-      (else (error-make "Variable undeclared: " id)) )))
+  (if (not (dict-exisist? env id))
+      (iException+ (list "Variable undeclared: " id))
+      (env-deref env (env-getRef env id)) ))
+
+; Dereferences a reference within env
+(define (env-deref env ref)
+  (if (not (value-ref? ref))
+      (iException+ (list "Trying to dereference a rvalue."))
+      (unbox (value-v ref)) ))
 
 (define (env-varDefined? env id)
-  (not (error? (env-getVar env id))))
+  (dict-exisist? env id) )
 
 ; Inserts a new variable into environment
 ; REQUIRE : Current Environment does not contain a definition
-(define (env-defineVar env var)
-  (if (env-varDefined? env (var-name var))
-      (error-make "Multiple Definition: " (var-name var))
-      (cons var env) ))
+(define (env-defineVar env id value)
+  (if (env-varDefined? env id)
+      (iException+ ("Multiple Definition: " id))
+      (dict-add env id (box value)) ))
 
 ; Deletes an identifier from environment
 ; REQUIRE : Current env contains such id
 (define (env-undefVar env id)
   (if (env-varDefined? env id)
-      (remove-first (assert-attr var-name id) env)
-      (error-make "Trying to undef non-existent var:" id) ))
+      (dict-remove env id)
+      (iException (list "Trying to undef non-existent var:" id)) ))
 
 ; Assigns to an existing variable in environment
-; REQUIRE : There exists such variable
-(define (env-assignToVar env id value)
-  (let ((envp (env-undefVar env id))
-        (var (env-getVar env id)) )
-    (if (error? envp)
-        (error-make "Assigning to undeclared variable:" id)
-        (env-defineVar envp (var-assignTo var value)) )))
+; REQUIRE : If the reference is already invalidated,
+;           trying to assigning to this will result in undefined behavior!
+(define (env-assignToRef env ref value)
+  (if (not (value-ref? ref))
+      (iException (list "Trying to assign to rvalue."))
+      (begin (set-box! (value-v ref) value) env) ))
 
-(define (env-hasReturn? env)
-  (env-varDefined? env 'ret))
+; Returns a rvalue
+(define (env-getRef env id)
+  (if (not (dict-exisist? env id))
+      (iException+ (list "Variable undeclared: " id))
+      (let ([box-val (dict-get env id)])
+        (value-ref-make box-val
+                        (value-type (unbox box-val)) ))))
 
-(define (env-setReturn env value)
-  (if (env-hasReturn? env)
-      (env-assignToVar env 'ret value)
-      (env-defineVar env (var-make 'ret value)) ))
-
-(define (env-return env)
-  (if (env-hasReturn? env)
-      (var-value (env-getVar env 'ret))
-      (error-make "Accessing undefined return value" '!) ))
-
- 
-; Tests
-;(equal? (env-getVar '((a 1)) 'a) '(a 1))
-;(equal? (env-getVar '() 'a) '())
-;(equal? ((env-getVar '((a 1) (a 1)) 'a)) "MultiDef")
-;(equal? (env-getVar '((a 1) (b 1)) 'b) '(b 1))
+;(define (env-hasReturn? env)
+;  (env-varDefined? env 'ret))
 ;
-;(define penv (env-defineVar (env-make) (var-make 'a 1)))
-;(define ppenv (env-defineVar penv (var-make 'b 2)))
-;(env-assignToVar ppenv 'a 2)
-;(errorMsg (env-assignToVar ppenv 'c 2))
+;(define (env-setReturn env value)
+;  (if (env-hasReturn? env)
+;      (env-assignToVar env 'ret value)
+;      (env-defineVar env (var-make 'ret value)) ))
+;
+;(define (env-return env)
+;  (if (env-hasReturn? env)
+;      (var-value (env-getVar env 'ret))
+;      (error-make "Accessing undefined return value" '!) ))
