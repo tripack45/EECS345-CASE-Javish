@@ -11,18 +11,32 @@
 ; The 'value' class
 
 (define (value-make val type)
-  (dict-make+ (list 'v 'type 'ref)
-              (list val type #f)))
+  (dict-make+ (list 'v 'type 'attr)
+              (list val type (dict-make))))
 
-(define (value-ref-make ref type)
-  (dict-make+ (list 'v 'type 'ref)
-              (list ref type ref)))
+(define (lvalue-make boxed-rvalue)
+  (let ([rvalue (unbox boxed-rvalue)])
+    (dict-make+ (list 'v 'type 'attr)
+                (list (value-v rvalue)
+                      (value-type rvalue)
+                      (dict-make+ (list 'lvalue)
+                                  (list boxed-rvalue) )))))
 
 (define (value-v value) (dict-get value 'v))
 
 (define (value-type value) (dict-get value 'type))
 
-(define (value-ref? value) (dict-get value 'ref))
+(define (value-lvalue? value)
+  (dict-exisist? (dict-get value 'attr) 'lvalue))
+
+(define (value-lvalue value)
+  (dict-get (dict-get value 'attr) 'lvalue))
+
+(define (value-torvalue lvalue)
+  (if (value-lvalue? lvalue)
+      (unbox (dict-get (dict-get lvalue 'attr) 'lvalue))
+      lvalue))
+  
 
 ; ========= 'env' class =============
 ; Note due to involvement of "boxes" now
@@ -37,19 +51,6 @@
          (env-make)
          l1 l2))
 
-; get the left-value of id from env
-; REQUIRE: that variable is defined
-(define (env-getVar env id)
-  (if (not (dict-exisist? env id))
-      (iException+ (list "Variable undeclared: " id))
-      (env-deref env (env-getRef env id)) ))
-
-; Dereferences a reference within env
-(define (env-deref env ref)
-  (if (not (value-ref? ref))
-      (iException+ (list "Trying to dereference a rvalue."))
-      (unbox (value-v ref)) ))
-
 (define (env-varDefined? env id)
   (dict-exisist? env id) )
 
@@ -57,7 +58,7 @@
 ; REQUIRE : Current Environment does not contain a definition
 (define (env-defineVar env id value)
   (if (env-varDefined? env id)
-      (iException+ ("Multiple Definition: " id))
+      (iException+ (list "Multiple Definition: " id))
       (dict-add env id (box value)) ))
 
 ; Deletes an identifier from environment
@@ -68,20 +69,21 @@
       (iException (list "Trying to undef non-existent var:" id)) ))
 
 ; Assigns to an existing variable in environment
-; REQUIRE : If the reference is already invalidated,
+; REQUIRE : If the rvalue is already invalidated,
 ;           trying to assigning to this will result in undefined behavior!
-(define (env-assignToRef env ref value)
-  (if (not (value-ref? ref))
+(define (env-assignToLval env lval value)
+  (if (not (value-lvalue? lval))
       (iException (list "Trying to assign to rvalue."))
-      (begin (set-box! (value-v ref) value) env) ))
+      (let ([boxed-rvalue (value-lvalue lval)])
+        (begin
+          (set-box! boxed-rvalue (value-torvalue value))
+          env ))))
 
-; Returns a rvalue
-(define (env-getRef env id)
+; Returns a lvalue
+(define (env-getVar env id)
   (if (not (dict-exisist? env id))
       (iException+ (list "Variable undeclared: " id))
-      (let ([box-val (dict-get env id)])
-        (value-ref-make box-val
-                        (value-type (unbox box-val)) ))))
+        (lvalue-make (dict-get env id))))
 
 ;(define (env-hasReturn? env)
 ;  (env-varDefined? env 'ret))

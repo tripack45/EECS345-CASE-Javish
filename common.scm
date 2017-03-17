@@ -28,11 +28,28 @@
 ;(define (error-make reason var)
 ;  (lambda () (string-append reason (symbol->string var))))
 
-(define (!= lhs rhs) (not (= lhs rhs)))
 (define (land p q) (and p q))
 (define (lor p q) (or p q))
+(define (lnot p) (not p))
 
 (define (id x) x)
+
+; Poor man's printf
+(define (form-string l)
+  (cond
+    [(null? l) ""]
+    [(symbol? (car l))
+     (string-append " '" (symbol->string (car l)) "' "
+                    (form-string (cdr l)) )]
+    [(number? (car l))
+     (string-append " " (number->string (car l)) " "
+                    (form-string (cdr l)) )]
+    [(string? (car l))
+     (string-append (car l) (form-string (cdr l)))]
+    [else
+     (begin (print l)
+            (newline)
+            (error "Cannot format string") )]))
 
 ; Returns a list of 2 lists
 ; The second list's first element is elem
@@ -52,6 +69,8 @@
 (define (split l elem)
   (split+ l (lambda (e) (equal? e elem))))
 
+
+
 ; Internal Exception Type
 
 (define (iException text)
@@ -60,22 +79,6 @@
 (define iException? procedure?)
 
 (define (iException+ list)
-  (define (form-string l)
-    (cond
-      [(null? l) ""]
-      [(symbol? (car l))
-       (string-append " '" (symbol->string (car l)) "' "
-                      (form-string (cdr l)) )]
-      [(number? (car l))
-       (string-append " " (number->string (car l)) " "
-                      (form-string (cdr l)) )]
-      [(string? (car l))
-       (string-append (car l) (form-string (cdr l)))]
-      [else
-       (begin (print l)
-              (newline)
-              (error "Cannot format string") )]))
-
   (iException (form-string list)) )
       
 ; Dictionary Type
@@ -91,7 +94,7 @@
                     (car keylist) (car vallist)) )))
 
 (define (dict-pair-make key val)
-  (list key (box val)) )
+  (list key val) )
 
 (define (dict-cmpkey key)
   (lambda (pair) (equal? (car pair) key)) )
@@ -105,7 +108,7 @@
     ((fore back)
      (if (null? back)
          (iException+ (list "Dictionary: retrieved key" key "does not exists."))
-         (unbox (cadr (car back))) ))))
+         (cadr (car back)) ))))
 
 (define (dict-add dict key value)
   (if (dict-exisist? dict key)
@@ -121,20 +124,21 @@
               (dict-clone (cdr dict)) ))))
   
 ; Update with side effect
-(define (dict-update! dict key newValue)
+(define (dict-update dict key newValue)
   (match (split+ dict (dict-cmpkey key))
     ((fore back)
      (if (null? back)
          (iException+ (list "Dictionary: updated key" key "does not exists."))
-         (let* ([pair (car back)]
-                [box-val (cadr pair)])
-           (begin (set-box! box-val newValue) dict) )))))
+         (let ([pair (car back)])
+           (append fore
+                   (cons (dict-pair-make dey newValue)
+                         (cdr back) )))))))
 
 ; Update without side-effect
 ; Achieve by first making a deep copy of
 ; the original dictionary
-(define (dict-update dict key newValue)
-  (dict-update! (dict-clone dict) key newValue) )
+;(define (dict-update dict key newValue)
+;  (dict-update! (dict-clone dict) key newValue) )
 
 (define (dict-remove dict key)
   (match (split+ dict (dict-cmpkey key))
