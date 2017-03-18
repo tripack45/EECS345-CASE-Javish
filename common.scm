@@ -74,12 +74,17 @@
 ; Internal Exception Type
 
 (define (iException text)
-  (lambda () text))
+  (box (lambda () text)) )
 
-(define iException? procedure?)
+(define (iException? e)
+  (and (box? e)
+       (procedure? (unbox e)) ))
 
 (define (iException+ list)
   (iException (form-string list)) )
+
+(define (iException-str e)
+  ((unbox e)) )
       
 ; Dictionary Type
 
@@ -123,7 +128,7 @@
         (cons (list (car first) (box (unbox (cadr first))))
               (dict-clone (cdr dict)) ))))
   
-; Update with side effect
+; Update without side effect
 (define (dict-update dict key newValue)
   (match (split+ dict (dict-cmpkey key))
     ((fore back)
@@ -144,12 +149,8 @@
                    (cons (dict-pair-make key (f (cadr pair)))
                          (cdr back) )))))))
 
-; Update without side-effect
-; Achieve by first making a deep copy of
-; the original dictionary
-;(define (dict-update dict key newValue)
-;  (dict-update! (dict-clone dict) key newValue) )
-
+; Removes the item given by key
+; if item does not exists, does nothing
 (define (dict-remove dict key)
   (match (split+ dict (dict-cmpkey key))
     ((fore back)

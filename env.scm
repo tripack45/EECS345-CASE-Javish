@@ -43,11 +43,17 @@
 (define (env-make)
   (dict-make+ (list 'stack 'cont)
               (list (list (layer-make))
-                    (dict-make) )))
+                    (env-cont-make) )))
+
 (define (env-make+ l1 l2)
   (dict-make+ (list 'stack 'cont)
               (list (list (layer-make+ l1 l2))
-                    (dict-make) )))
+                    (env-cont-make) )))
+
+(define (env-make-cont return throw)
+  (dict-make+ (list 'stack 'cont)
+              (list (list (layer-make))
+                    (env-cont-make+ return throw) )))
 
 (define (env-varDefined? env id) '())
 
@@ -92,7 +98,66 @@
         (iException "Cannot pop last layer")
         (dict-update env 'stack (cdr stack)) )))
 
-; ========= 'layer' class =============
+; ========= 'Continuation Manager' ========
+; Allows constructs to dynamically introduce new
+; continuations and access them, modify them
+; continuations are considered part of the program
+; state
+(define (env-cont-make)
+  (dict-make+ (list 'return 'throw)
+              (list id id)))
+
+(define (env-cont-make+ ret thr)
+  (dict-make+ (list 'return 'throw)
+              (list ret thr) ))
+
+(define (env-cont-add env id k)
+  (call/cc
+   (lambda (throw)
+     (dict-update+ env 'cont
+     (lambda (cont)
+       ((lambda (n-cont)
+          (if (iException? n-cont)
+              (throw n-cont)
+              n-cont ))
+        (dict-add cont id k) ))))))
+
+(define (env-cont-remove env id)
+  (dict-update+ env 'cont
+  (lambda (cont)
+    (dict-remove cont id) )))
+
+(define (env-cont-get env id)
+   (let ([cont-id (dict-get (dict-get env 'cont) id)])
+     (if (iException? cont-id)
+         (iException+ (list "Continuation" id "does not exist"))
+         cont-id )))
+
+(define (env-cont-update+ env id f)
+  (call/cc
+   (lambda (throw)
+     (dict-update+ env 'cont
+     (lambda (cont)
+       ((lambda (new-cont)
+          (if (iException? new-cont)
+              (throw new-cont)
+              new-cont))
+        (dict-update+ cont id f) ))))))
+     
+; two default continuations: 'throw' and 'return'
+(define (env-throw env val)
+  ((env-cont-get env 'throw) env val))
+
+(define (env-return env val)
+  ((env-cont-get env 'return) env val))
+
+(define (env-setThrow+ env f)
+  ((env-cont-update+ 'throw f)) )
+
+(define (env-setReturn+ env val)
+  ((env-cont-update+ 'return f)))
+
+; ========= 'layer' class =================
 ; Note due to involvement of "boxes" now
 ; 'layer' objects are stateful objects.
 ; in particular, modification of variable value
