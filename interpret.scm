@@ -101,6 +101,7 @@
     (('var vname expr) (M-declare-expr vname expr env k))
     (('var vname) (M-declare vname (tvoid) env k))
     (('= sym expr) (M-assignment sym expr env k))
+    (('begin _ ...) (M-block (cdr statement) env k))
     ((cons x y) (k-err (lambda () "Unrecogonized identifier")))
     ((? number? x) (M-num-literal x env k))
     (sym (M-symbol statement env k))
@@ -183,6 +184,15 @@
                         (M-while condition stmt e-stat k) )))]
       [else ((k-norm k) e (tvoid))] )))))
 
+(define (M-block stmt env k)
+  (if (null? stmt)
+      ((k-norm k) env (tvoid))
+      (M-stat (car stmt) (env-pushLayer env) (k-setNorm k
+      (lambda (e v)
+        (M-block (cdr stmt) e (k-setNorm k
+        (lambda (e-end v-end)
+          ((k-norm k) (env-popLayer e-end) v-end) ))))))))
+
 (define (dispValue v) v)
 
 ;(trace interpret)
@@ -205,4 +215,4 @@
           (testall-helper (add1 count) max))
         (display "Test completed")))
 
-  (testall-helper 1 29))
+  (testall-helper 1 36))

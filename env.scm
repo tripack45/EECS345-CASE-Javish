@@ -113,7 +113,7 @@
 (define (layer-defineVar layer id value)
   (if (layer-varDefined? layer id)
       (iException+ (list "Multiple Definition: " id))
-      (dict-add layer id (box value)) ))
+      (dict-add layer id (box (value-torvalue value))) ))
 
 ; Deletes an identifier from environment
 ; REQUIRE : Current env contains such id
