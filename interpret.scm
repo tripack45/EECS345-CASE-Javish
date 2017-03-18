@@ -139,13 +139,14 @@
 (define (M-declare sym init env k)
   (let ([n-env (env-defineVar env sym init)])
       (if (iException? n-env)
-          ((k-err k) n-env (Exception (n-env)))
+          ((k-err k) env (Exception (n-env)))
           ((k-norm k) n-env (tvoid)) )))
 
 (define (M-declare-expr sym expr env k)
   (M-stat expr env (k-setNorm k
   (lambda (e rst)
       (M-declare sym rst e k) ))))
+
 
 ; Unlike C/Java assignment returns rvalue!
 (define (M-assignment sym expr env k)
@@ -154,7 +155,7 @@
     (let ([lval (env-getVar e sym)])
       (if (iException? lval)
           ((k-err k) e (Exception (lval)))
-          (let ([n-env (env-assignToLval e lval rst)])
+          (let ([n-env (env-assign! e lval rst)])
             (if (iException? n-env)
                 ((k-err k) n-env (Exception (n-env)))
                 ((k-norm k) n-env rst)) )))))))

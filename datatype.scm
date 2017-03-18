@@ -130,16 +130,15 @@
 ;(equal? (value-torvalue (env-getVar e1 'a))
 ;        (num 1))
 ;
-;(define e2 (env-assignToLval e1
-;                             (env-getVar e1 'b)
-;                             (num 10)))
+;(define e2 (env-assign! e1
+;                        (env-getVar e1 'b)
+;                        (num 10)))
+;
+;(define e3 (env-defineVar e2 'k (num 123)))
+;
+;e3
 ;
 ;(equal? (value-torvalue (env-getVar e2 'b)) (num 10))
 ;(equal? (value-torvalue (env-getVar e1 'b)) (num 10))
 ;(equal? (value-torvalue (env-getVar e2 'd)) (bool #t))
-;
-;(define e3 (env-undefVar e2 'd))
-;
-;(env-varDefined? e2 'd)
-;(not (env-varDefined? e3 'd))
   

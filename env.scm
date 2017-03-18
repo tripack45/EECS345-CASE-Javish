@@ -36,64 +36,105 @@
   (if (value-lvalue? lvalue)
       (unbox (dict-get (dict-get lvalue 'attr) 'lvalue))
       lvalue))
-  
 
 ; ========= 'env' class =============
-; Note due to involvement of "boxes" now
-; 'env' objects are stateful objects.
-; in particular, modification of variable value
-; in the env class is a STATEFUL operation
+; 'env' objects are stateful now!
 
-(define env-make dict-make)
+(define (env-make)
+  (dict-make+ (list 'stack 'cont)
+              (list (list (layer-make))
+                    (dict-make) )))
 (define (env-make+ l1 l2)
-  (foldl (lambda (id value env)
-           (env-defineVar env id value) )
-         (env-make)
-         l1 l2))
+  (dict-make+ (list 'stack 'cont)
+              (list (list (layer-make+ l1 l2))
+                    (dict-make) )))
 
-(define (env-varDefined? env id)
-  (dict-exisist? env id) )
+(define (env-varDefined? env id) '())
 
-; Inserts a new variable into environment
-; REQUIRE : Current Environment does not contain a definition
-(define (env-defineVar env id value)
-  (if (env-varDefined? env id)
-      (iException+ (list "Multiple Definition: " id))
-      (dict-add env id (box value)) ))
-
-; Deletes an identifier from environment
-; REQUIRE : Current env contains such id
-(define (env-undefVar env id)
-  (if (env-varDefined? env id)
-      (dict-remove env id)
-      (iException (list "Trying to undef non-existent var:" id)) ))
-
-; Assigns to an existing variable in environment
-; REQUIRE : If the rvalue is already invalidated,
-;           trying to assigning to this will result in undefined behavior!
-(define (env-assignToLval env lval value)
-  (if (not (value-lvalue? lval))
+(define (env-assign! env lval value)
+    (if (not (value-lvalue? lval))
       (iException (list "Trying to assign to rvalue."))
       (let ([boxed-rvalue (value-lvalue lval)])
         (begin
           (set-box! boxed-rvalue (value-torvalue value))
           env ))))
 
-; Returns a lvalue
 (define (env-getVar env id)
-  (if (not (dict-exisist? env id))
-      (iException+ (list "Variable undeclared: " id))
-        (lvalue-make (dict-get env id))))
+  (define (getVar stack id)
+    (if (null? stack)
+        (iException+ (list "Variable undeclared:" id))
+        ((lambda (lval)
+           (if (iException? lval)
+               (getVar (cdr stack) id)
+               lval ))
+         (layer-getVar (car stack) id) )))
 
-;(define (env-hasReturn? env)
-;  (env-varDefined? env 'ret))
-;
-;(define (env-setReturn env value)
-;  (if (env-hasReturn? env)
-;      (env-assignToVar env 'ret value)
-;      (env-defineVar env (var-make 'ret value)) ))
-;
-;(define (env-return env)
-;  (if (env-hasReturn? env)
-;      (var-value (env-getVar env 'ret))
-;      (error-make "Accessing undefined return value" '!) ))
+  (getVar (dict-get env 'stack) id) )
+
+(define (env-defineVar env id value)
+  (call/cc
+   (lambda (throw)
+     (dict-update+ env 'stack
+     (lambda (stack)
+       (let ([n-layer (layer-defineVar (car stack) id value)])
+         (if (iException? n-layer)
+             (throw n-layer)
+             (cons n-layer (cdr stack)) )))))))
+
+(define (env-pushLayer env)
+  (dict-update+ env 'stack
+                (lambda (stack)
+                  (cons (layer-make) stack) )))
+
+(define (env-popLayer env)
+  (let ([stack (dict-get env 'stack)])
+    (if (null? (cdr stack))
+        (iException "Cannot pop last layer")
+        (dict-update env 'stack (cdr stack)) )))
+
+; ========= 'layer' class =============
+; Note due to involvement of "boxes" now
+; 'layer' objects are stateful objects.
+; in particular, modification of variable value
+; in the layer class is a STATEFUL operation
+
+(define layer-make dict-make)
+(define (layer-make+ l1 l2)
+  (foldl (lambda (id value layer)
+           (layer-defineVar layer id value) )
+         (layer-make)
+         l1 l2))
+
+(define (layer-varDefined? layer id)
+  (dict-exisist? layer id) )
+
+; Inserts a new variable into environment
+; REQUIRE : Current Environment does not contain a definition
+(define (layer-defineVar layer id value)
+  (if (layer-varDefined? layer id)
+      (iException+ (list "Multiple Definition: " id))
+      (dict-add layer id (box value)) ))
+
+; Deletes an identifier from environment
+; REQUIRE : Current env contains such id
+(define (layer-undefVar layer id)
+  (if (layer-varDefined? layer id)
+      (dict-remove layer id)
+      (iException (list "Trying to undef non-existent var:" id)) ))
+
+; Assigns to an existing variable in environment
+; REQUIRE : If the rvalue is already invalidated,
+;           trying to assigning to this will result in undefined behavior!
+(define (layer-assign! layer lval value)
+  (if (not (value-lvalue? lval))
+      (iException (list "Trying to assign to rvalue."))
+      (let ([boxed-rvalue (value-lvalue lval)])
+        (begin
+          (set-box! boxed-rvalue (value-torvalue value))
+          layer ))))
+
+; Returns a lvalue
+(define (layer-getVar layer id)
+  (if (not (dict-exisist? layer id))
+      (iException+ (list "Variable undeclared: " id))
+        (lvalue-make (dict-get layer id))))

@@ -131,7 +131,17 @@
          (iException+ (list "Dictionary: updated key" key "does not exists."))
          (let ([pair (car back)])
            (append fore
-                   (cons (dict-pair-make dey newValue)
+                   (cons (dict-pair-make key newValue)
+                         (cdr back) )))))))
+
+(define (dict-update+ dict key f)
+  (match (split+ dict (dict-cmpkey key))
+    ((fore back)
+     (if (null? back)
+         (iException+ (list "Dictionary: updated key" key "does not exists."))
+         (let ([pair (car back)])
+           (append fore
+                   (cons (dict-pair-make key (f (cadr pair)))
                          (cdr back) )))))))
 
 ; Update without side-effect
