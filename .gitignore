@@ -5,3 +5,8 @@
 *.scm~
 *.scm#*
 .#*.scm
+
+*.zip
+*.rtf
+*.pdf
+*.bak
