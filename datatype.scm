@@ -55,7 +55,8 @@
   (value-make '() 'tvoid))
 
 (define (tvoid? v)
-  (and (equal? (value-type v) 'tvoid)
+  (and (pair? v)
+       (equal? (value-type v) 'tvoid)
        (null? (value-v v)) ))
 
 ; Overloading operators

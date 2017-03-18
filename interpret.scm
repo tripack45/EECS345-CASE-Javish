@@ -36,7 +36,9 @@
   (define (normal-cont env rst)
     (if (tvoid? rst)
         (Exception "Error: Missing return value!")
-        (dispValue rst) ))
+        (begin
+          ;(print "Env:") (newline) (print env) (newline)
+          (dispValue rst)) ))
 
   (define (err-cont env ex)
     (begin
@@ -50,7 +52,10 @@
       "" ))
 
   (define prog (parser file))
-  (define env (env-make-cont normal-cont err-cont))
+  (define env (env-make-cont normal-cont
+                             err-cont
+                             (lambda (id env rst)
+                               (err-cont env (Exception+ (list "No where to" id))) )))
   
   (exec prog env normal-cont) )
 
@@ -81,6 +86,8 @@
     (('var vname) (M-declare vname (tvoid) env k))
     (('= sym expr) (M-assignment sym expr env k))
     (('begin _ ...) (M-block (cdr statement) env k))
+    (('break) (M-break env k))
+    (('continue) (M-continue env k))
     ((cons x y) (k-err (lambda () "Unrecogonized identifier")))
     ((? number? x) (M-num-literal x env k))
     (sym (M-symbol statement env k))
@@ -152,23 +159,68 @@
       [else (M-stat expr2 e k)] ))))
 
 (define (M-while condition stmt env k)
-  (M-stat condition env 
-  (lambda (e b)
-    (cond
-      [(not (bool? b)) (Exception+ (list "Type Error: 'while' condiction expects 'boolean', got" (value-type b)))]
-      [(bool-true? b) (M-stat stmt e 
-                      (lambda (e-stat rst)
-                        (M-while condition stmt e-stat k) ))]
-      [else (k e (tvoid))] ))))
+  (define k-save (env-cont-saveall env))
 
-(define (M-block stmt env k)
-  (if (null? stmt)
-      (k env (tvoid))
-      (M-stat (car stmt) (env-pushLayer env) 
+  (define k-finalize
+    (lambda (env) (env-cont-restoreall env k-save) ))
+
+  (define k-continue
+    (lambda (env rst)
+      (M-stat condition env 
+              (lambda (e b)
+                (cond
+                  [(not (bool? b)) (Exception+ (list "Type Error: 'while' condiction expects 'boolean', got" (value-type b)))]
+                  [(bool-true? b) (M-stat stmt e 
+                                          (lambda (e-stat rst)
+                                            (M-while condition stmt e-stat k) ))]
+                  [else (k (k-finalize e) (tvoid))] )))))
+
+  (define k-break (lambda (env rst) (k (k-finalize env) rst)))
+
+  (define append-finalize
+    (lambda (k-prev)
       (lambda (e v)
-        (M-block (cdr stmt) e 
-        (lambda (e-end v-end)
-          (k (env-popLayer e-end) v-end) ))))))
+        (k-prev (k-finalize e) v) )))
+ 
+  (let* ([env0 (env-cont-patch env 'break k-break)]
+         [env1 (env-cont-patch env0 'continue k-continue)]
+         [env2 (env-setThrow+ env1 append-finalize)]
+         [env3 (env-setReturn+ env1 append-finalize)])
+    (k-continue env3 (tvoid)) ))
+        
+(define (M-block stmt env k)
+
+  (define k-save (env-cont-saveall env))
+
+  (define (finalize e)
+    (env-popLayer (env-cont-restoreall e k-save)))
+    
+  (define append-finalize
+    (lambda (k-prev)
+      (lambda (e v)
+        (k-prev (finalize e) v) )))
+
+  (define (executeInLayer stmt env k)
+    (if (null? stmt)
+        (k env (tvoid))
+        (M-stat (car stmt) env
+                (lambda (e v)
+                  (executeInLayer (cdr stmt) e k)))))
+  
+  (let* ([env0 (env-setBreak+ env append-finalize)]
+         [env1 (env-setContinue+ env0 append-finalize)]
+         [env2 (env-setThrow+ env1 append-finalize)]
+         [env3 (env-setReturn+ env2 append-finalize)]
+         [env4 (env-pushLayer env3)])
+    (if (null? stmt)
+        (k e (tvoid))
+        (executeInLayer stmt env4 (append-finalize k)) )))
+
+(define (M-break env k)
+  (env-follow 'break env (tvoid)) )
+
+(define (M-continue env k)
+  (env-follow 'continue env (tvoid) ))
 
 (define (dispValue v) v)
 
@@ -191,5 +243,7 @@
           (newline)
           (testall-helper (add1 count) max))
         (display "Test completed")))
+  ;(testall-helper 39 39))
+  (testall-helper 1 43))
 
-  (testall-helper 1 36))
+(testall)
