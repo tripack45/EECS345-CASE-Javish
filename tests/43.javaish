@@ -1,15 +1,7 @@
-var x;
-
-try {
-  x = 20;
-  if (x < 0)
-    throw 10;
-  x = x + 5;
-}
-catch(e) {
-  x = e;
-}
-finally {
-  x = x + 100;
+var x = 1;
+while (true) {
+  x = x + 1;
+  if (x > 10 && x % 2 == 0)
+   break;
 }
 return x;

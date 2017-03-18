@@ -2,7 +2,7 @@ var x;
 
 try {
   x = 20;
-  if (x > 10)
+  if (x < 0)
     throw 10;
   x = x + 5;
 }
