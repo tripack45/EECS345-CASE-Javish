@@ -5,6 +5,7 @@
 ; YAO, Kaiqi
 
 (require racket/trace)
+(require racket/contract)
 
 (load "simpleParser.scm")
 (load "env.scm")
@@ -21,13 +22,7 @@
 (define (err-throw e)
     (error "Error:\n Interpretation Failed due to\n" (e)) )
 
-; Executes a seriers of code
-(define (exec stmt-list env k)
-    (if (null? stmt-list)
-        (k env (tvoid))
-        (M-stat (car stmt-list) env  
-                (lambda (e rst)
-                  (exec (cdr stmt-list) e k) ))))
+
 
 (define (interpret file) (interpret! file err-throw))
 
@@ -81,18 +76,30 @@
     (('if cond statT statF) (M-if cond statT statF env k))
     (('if cond statT) (M-if cond statT '() env k))
     (('while cond stmt) (M-while cond stmt env k))
+    (('try t-stmt '() ('finally f-stmt)) (M-try-no-catch t-stmt f-stmt env k))
+    (('try t-stmt ('catch (id) c-stmt) '()) (M-try-no-finally t-stmt id c-stmt env k))
+    (('try t-stmt ('catch (id) c-stmt) ('finally f-stmt)) (M-try t-stmt id c-stmt f-stmt env k))
     (('return expr) (M-return expr env k))
+    (('throw expr) (M-throw expr env k))
     (('var vname expr) (M-declare-expr vname expr env k))
     (('var vname) (M-declare vname (tvoid) env k))
     (('= sym expr) (M-assignment sym expr env k))
     (('begin _ ...) (M-block (cdr statement) env k))
     (('break) (M-break env k))
     (('continue) (M-continue env k))
-    ((cons x y) (k-err (lambda () "Unrecogonized identifier")))
+    ((cons x y) (error "Unrecogonized identifier"))
     ((? number? x) (M-num-literal x env k))
     (sym (M-symbol statement env k))
-    (_ (k-err (lambda () "Match failed" ))) ))
+    (_ (Exception "Match failed")) ))
 
+
+; Executes a seriers of code
+(define (exec stmt-list env k)
+    (if (null? stmt-list)
+        (k env (tvoid))
+        (M-stat (car stmt-list) env  
+                (lambda (e rst)
+                  (exec (cdr stmt-list) e k) ))))
 
 (define (M-binary-left-oper op lhs rhs env k)
   (M-stat lhs env 
@@ -213,7 +220,7 @@
          [env3 (env-setReturn+ env2 append-finalize)]
          [env4 (env-pushLayer env3)])
     (if (null? stmt)
-        (k e (tvoid))
+        (k env (tvoid))
         (executeInLayer stmt env4 (append-finalize k)) )))
 
 (define (M-break env k)
@@ -221,6 +228,133 @@
 
 (define (M-continue env k)
   (env-follow 'continue env (tvoid) ))
+
+(define (M-throw expr env k)
+  (M-stat expr env
+          (lambda (e v)
+            (env-throw e (value-torvalue v) ))))
+
+
+; Must take care of corner cases:
+; Break inside a catch-block etc.
+; Need to take care of the scoping of catch(e)
+(define (M-try t-stmt id c-stmt f-stmt env k-break)
+
+  (define k-save (env-cont-saveall env))
+  
+  (define (M-try-block stmt env k)
+   
+    (define (exit-try e k)
+      (k (env-cont-restoreall e k-save)) )
+    (define modify-throw
+      (lambda (k-throw)
+      (lambda (e v)
+        (exit-try e ; first clean up try block
+        (lambda (exited-env)
+          (M-catch-block c-stmt id v exited-env
+          (lambda (e2 v2)
+            (M-finally-block f-stmt e2 k-break) ))))))) 
+    (define modify-other
+      (lambda (k-prev)
+        (lambda (e v)
+          (exit-try e
+          (lambda (exited-env)
+            (M-finally-block f-stmt exited-env k-prev) )))))
+    (define (introduce-try env k)
+      (let* ([env0 (env-setThrow+ env modify-throw)]
+             [env1 (env-setReturn+ env0 modify-other)]
+             [env2 (env-setContinue+ env1 modify-other)]
+             [env3 (env-setBreak+ env2 modify-other)])
+        (k env3) ))
+
+    (introduce-try env
+                   (lambda (env-try)
+                     (M-block stmt env-try
+                              (lambda (e v)
+                                (exit-try e
+                                          (lambda (exited-e)
+                                            (k exited-e v))) )))))
+
+  
+  (define (M-catch-block stmt id rst env k)
+    
+    (define (exit-catch e k)
+      (k (env-popLayer (env-cont-restoreall e k-save))) )
+    (define modify-all
+      (lambda (k-prev)
+      (lambda (e v)
+        (exit-catch e ; first clean up try block
+        (lambda (exited-env)
+          (M-finally-block f-stmt exited-env k-prev) )))))
+    (define (introduce-catch id rst env k)
+      (let* ([env0 (env-setThrow+ env modify-all)]
+             [env1 (env-setReturn+ env0 modify-all)]
+             [env2 (env-setContinue+ env1 modify-all)]
+             [env3 (env-setBreak+ env2 modify-all)]
+             [env4 (env-pushLayer env3)]
+             [env5 (env-defineVar env4 id rst)])
+        (k env5) ))
+    
+    (introduce-catch id rst env
+                     (lambda (env-catch)
+                       (M-block stmt env-catch
+                                (lambda (e v)
+                                  (exit-catch e
+                                              (lambda (exited-env)
+                                                (k exited-env v) )))))))
+
+  (define (M-finally-block stmt env k)
+    (M-block stmt env k) )
+
+  (M-try-block t-stmt env
+               (lambda (e v)
+                 (M-finally-block f-stmt e k-break) )))
+  
+
+(define (M-try-no-catch t-stmt f-stmt env k-break)
+
+  (define k-save (env-cont-saveall env))
+
+  (define (M-try-block stmt env k)
+   
+    (define (exit-try e k)
+      (k (env-cont-restoreall e k-save)) )
+    (define modify-throw
+      (lambda (k-throw)
+      (lambda (e v)
+        (exit-try e ; first clean up try block
+          (lambda (e2 v2)
+            (M-finally-block f-stmt e2 k-throw) )))))
+    (define modify-other
+      (lambda (k-prev)
+        (lambda (e v)
+          (exit-try e
+          (lambda (exited-env)
+            (M-finally-block f-stmt exited-env k-prev) )))))
+    (define (introduce-try env k)
+      (let* ([env0 (env-setThrow+ env modify-throw)]
+             [env1 (env-setReturn+ env0 modify-other)]
+             [env2 (env-setContinue+ env1 modify-other)]
+             [env3 (env-setBreak+ env2 modify-other)])
+        (k env3) ))
+
+    (introduce-try env
+                   (lambda (env-try)
+                     (M-block stmt env-try
+                              (lambda (e v)
+                                (exit-try e
+                                          (lambda (exited-env)
+                                            (k exited-env v) )))))))
+
+  (define (M-finally-block stmt env k)
+    (M-block stmt env k) )
+
+  (M-try-block t-stmt env
+               (lambda (e v)
+                 (M-finally-block f-stmt e k-break) )))
+
+(define (M-try-no-finally t-stmt id c-stmt env k)
+  (M-try t-stmt id c-stmt '() env k) ) 
 
 (define (dispValue v) v)
 
@@ -244,6 +378,6 @@
           (testall-helper (add1 count) max))
         (display "Test completed")))
   ;(testall-helper 39 39))
-  (testall-helper 1 43))
+  (testall-helper 1 50))
 
 (testall)
