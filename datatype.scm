@@ -50,6 +50,19 @@
   (and (equal? (value-type value) 'Exception)
        (string? (value-v value)) ))
 
+; Data-type to string
+
+(define (tostring value)
+  (cond
+    [(tvoid? value) "No value"]
+    [(num? value) (number->string (value-v value))]
+    [(bool? value) (if (value-v value)
+                          "true"
+                          "false")]
+    [(Exception? value) (string-append "Exception: " (value-v value))]
+    [else "Unknown datatype."] ))
+
+
 ; tvoid type, just one single value
 (define (tvoid)
   (value-make '() 'tvoid))

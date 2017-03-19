@@ -5,7 +5,6 @@
 ; YAO, Kaiqi
 
 (require racket/trace)
-(require racket/contract)
 
 (load "simpleParser.scm")
 (load "env.scm")
@@ -14,45 +13,32 @@
 
 ;(define sampleProg (parser "test.javaish"))
 
-; Two specially named erros
-(define (err-unimplemented) "Feature unimplemented yet!")
-(define (err-noValue) "Not a value")
-; Two error-handlers
-(define err-stdReport errorMsg)
-(define (err-throw e)
-    (error "Error:\n Interpretation Failed due to\n" (e)) )
-
-
-
-(define (interpret file) (interpret! file err-throw))
-
-(define (interpret! file)
-
-  (define (normal-cont env rst)
-    (if (tvoid? rst)
-        (Exception "Error: Missing return value!")
-        (begin
-          ;(print "Env:") (newline) (print env) (newline)
-          (dispValue rst)) ))
-
-  (define (err-cont env ex)
-    (begin
-      (print "Stack trace:")
-      (newline)
-      (print env)
-      (newline)
-      (print "Error: Unhandeled exception")
-      (newline)
-      (print (value-v ex))
-      "" ))
+(define (interpret file)
 
   (define prog (parser file))
-  (define env (env-make-cont normal-cont
-                             err-cont
-                             (lambda (id env rst)
-                               (err-cont env (Exception+ (list "No where to" id))) )))
   
-  (exec prog env normal-cont) )
+  (define env (env-make-cont return-continuation
+                             exception-continuation
+                             exception-missing-cont ))
+
+  (exec prog env fall-through-continuation) )
+
+(define (fall-through-continuation e v)
+  (display "Missing 'return'!"))
+
+(define (return-continuation e v)
+  (display (tostring v)))
+
+(define (exception-continuation e v)
+  (error
+   (if (Exception? v)
+       (string-append "\nUnhandled exception:\n"
+                      (tostring v) )
+       (string-append "\nUnhandled exception:\n"
+                      "Exception Payload: " (tostring v) ))))
+
+(define (exception-missing-cont id e v)
+  (exception-continuation e (Exception+ (list "No place to" id) )))
 
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
@@ -280,6 +266,14 @@
     
     (define (exit-catch e k)
       (k (env-popLayer (env-cont-restoreall e k-save))) )
+    (define modify-return/throw ; These two must preserve the passed value!
+      (lambda (k-prev)
+        (lambda (e v)
+          (exit-catch e
+                      (lambda (exited-env)
+                        (M-finally-block f-stmt exited-env
+                                         (lambda (ef vf)
+                                           (k-prev ef v) )))))))
     (define modify-all
       (lambda (k-prev)
       (lambda (e v)
@@ -287,8 +281,8 @@
         (lambda (exited-env)
           (M-finally-block f-stmt exited-env k-prev) )))))
     (define (introduce-catch id rst env k)
-      (let* ([env0 (env-setThrow+ env modify-all)]
-             [env1 (env-setReturn+ env0 modify-all)]
+      (let* ([env0 (env-setThrow+ env modify-return/throw)]
+             [env1 (env-setReturn+ env0 modify-return/throw)]
              [env2 (env-setContinue+ env1 modify-all)]
              [env3 (env-setBreak+ env2 modify-all)]
              [env4 (env-pushLayer env3)]
@@ -361,6 +355,33 @@
 ;(trace interpret)
 ;(trace M-stat)
 
+(define (interpret! file)
+
+  (define (normal-cont env rst)
+    (if (tvoid? rst)
+        (Exception "Missing return value!")
+        (begin
+          ;(print "Env:") (newline) (print env) (newline)
+          (tostring rst)) ))
+
+  (define (err-cont env ex)
+    (begin
+      ;(print "Stack trace:")
+      ;(newline)
+      ;(print env)
+      ;(newline)
+      (display "Unhandeled exception: ")
+      (display (value-v ex))
+      "" ))
+
+  (define prog (parser file))
+  (define env (env-make-cont normal-cont
+                             err-cont
+                             (lambda (id env rst)
+                               (err-cont env (Exception+ (list "No where to" id))) )))
+  
+  (exec prog env normal-cont) )
+
 (define (testall)
   (define pre "tests/")
   (define ext ".javaish")
@@ -372,12 +393,12 @@
     (if (<= count max)
         (begin
           (display count)
-          (display ':)
+          (display ": ")
           (display (interpret! (make-path count)))
           (newline)
           (testall-helper (add1 count) max))
         (display "Test completed")))
   ;(testall-helper 39 39))
-  (testall-helper 1 50))
+  (testall-helper 1 51))
 
-(testall)
+; (testall)
