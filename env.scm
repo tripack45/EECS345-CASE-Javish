@@ -147,6 +147,11 @@
               new-cont))
         (dict-update+ cont id f) ))))))
 
+(define (env-cont-map env f)
+  (dict-update+ env 'cont
+                (lambda (cont)
+                       (dict-map cont f))))
+
 (define (env-cont update env id cont)
   (dict-update+ env id (lambda (k) cont)) )
 

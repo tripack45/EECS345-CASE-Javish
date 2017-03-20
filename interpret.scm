@@ -24,7 +24,7 @@
   (exec prog env fall-through-continuation) )
 
 (define (fall-through-continuation e v)
-  (display "Missing 'return'!"))
+  (error "Missing 'return'!"))
 
 (define (return-continuation e v)
   (display (tostring v)))
@@ -175,11 +175,15 @@
       (lambda (e v)
         (k-prev (k-finalize e) v) )))
  
-  (let* ([env0 (env-cont-patch env 'break k-break)]
-         [env1 (env-cont-patch env0 'continue k-continue)]
-         [env2 (env-setThrow+ env1 append-finalize)]
-         [env3 (env-setReturn+ env1 append-finalize)])
-    (k-continue env3 (tvoid)) ))
+  (k-continue (env-cont-map env
+                            (lambda (key cont)
+                              (cond
+                                [(eq? key 'break) k-break]
+                                [(eq? key 'continue) k-continue]
+                                [(eq? key 'throw) (append-finalize cont)]
+                                [(eq? key 'return) (append-finalize cont)]
+                                [else cont] )))
+              (tvoid) ))
         
 (define (M-block stmt env k)
 
@@ -200,11 +204,10 @@
                 (lambda (e v)
                   (executeInLayer (cdr stmt) e k)))))
   
-  (let* ([env0 (env-setBreak+ env append-finalize)]
-         [env1 (env-setContinue+ env0 append-finalize)]
-         [env2 (env-setThrow+ env1 append-finalize)]
-         [env3 (env-setReturn+ env2 append-finalize)]
-         [env4 (env-pushLayer env3)])
+  (let* ([env0 (env-cont-map env
+                             (lambda (key cont)
+                               (append-finalize cont)))]
+         [env4 (env-pushLayer env0)])
     (if (null? stmt)
         (k env (tvoid))
         (executeInLayer stmt env4 (append-finalize k)) )))
@@ -247,11 +250,14 @@
           (lambda (exited-env)
             (M-finally-block f-stmt exited-env k-prev) )))))
     (define (introduce-try env k)
-      (let* ([env0 (env-setThrow+ env modify-throw)]
-             [env1 (env-setReturn+ env0 modify-other)]
-             [env2 (env-setContinue+ env1 modify-other)]
-             [env3 (env-setBreak+ env2 modify-other)])
-        (k env3) ))
+      (k (env-cont-map env
+                       (lambda (key cont)
+                         (cond
+                           [(eq? key 'throw) (modify-throw cont)]
+                           [(eq? key 'return) (modify-other cont)]
+                           [(eq? key 'continue) (modify-other cont)]
+                           [(eq? key 'break) (modify-other cont)]
+                           [else cont] )))))
 
     (introduce-try env
                    (lambda (env-try)
@@ -281,11 +287,15 @@
         (lambda (exited-env)
           (M-finally-block f-stmt exited-env k-prev) )))))
     (define (introduce-catch id rst env k)
-      (let* ([env0 (env-setThrow+ env modify-return/throw)]
-             [env1 (env-setReturn+ env0 modify-return/throw)]
-             [env2 (env-setContinue+ env1 modify-all)]
-             [env3 (env-setBreak+ env2 modify-all)]
-             [env4 (env-pushLayer env3)]
+      (let* ([envp (env-cont-map env
+                                 (lambda (key cont)
+                                   (cond
+                                     [(eq? key 'throw) (modify-return/throw cont)]
+                                     [(eq? key 'return) (modify-return/throw cont)]
+                                     [(eq? key 'continue) (modify-all cont)]
+                                     [(eq? key 'break) (modify-all cont)]
+                                     [else cont] )))]
+             [env4 (env-pushLayer envp)]
              [env5 (env-defineVar env4 id rst)])
         (k env5) ))
     
@@ -325,12 +335,16 @@
           (exit-try e
           (lambda (exited-env)
             (M-finally-block f-stmt exited-env k-prev) )))))
+    
     (define (introduce-try env k)
-      (let* ([env0 (env-setThrow+ env modify-throw)]
-             [env1 (env-setReturn+ env0 modify-other)]
-             [env2 (env-setContinue+ env1 modify-other)]
-             [env3 (env-setBreak+ env2 modify-other)])
-        (k env3) ))
+      (k (env-cont-map env
+                       (lambda (key cont)
+                         (cond
+                           [(eq? key 'throw) (modify-throw cont)]
+                           [(eq? key 'return) (modify-other cont)]
+                           [(eq? key 'continue) (modify-other cont)]
+                           [(eq? key 'break) (modify-other cont)]
+                           [else cont] )))))
 
     (introduce-try env
                    (lambda (env-try)
@@ -398,7 +412,7 @@
           (newline)
           (testall-helper (add1 count) max))
         (display "Test completed")))
-  ;(testall-helper 39 39))
-  (testall-helper 1 51))
+  ;(testall-helper 52 52))
+  (testall-helper 1 53))
 
-; (testall)
+;(testall)

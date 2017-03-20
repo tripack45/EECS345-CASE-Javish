@@ -148,6 +148,12 @@
            (append fore
                    (cons (dict-pair-make key (f (cadr pair)))
                          (cdr back) )))))))
+; F expects to take in 2 values
+; an key and a value
+(define (dict-map dict f)
+  (letrec ([fp (lambda (pair) (list (car pair)
+                                    (apply f pair) ))])
+    (map fp dict) ))
 
 ; Removes the item given by key
 ; if item does not exists, does nothing
