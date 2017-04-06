@@ -1,3 +1,4 @@
+function main() {
 var x = 10;
 {
   var y = 2;
@@ -5,3 +6,4 @@ var x = 10;
   x = z;
 }
 return x;
+}

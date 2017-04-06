@@ -1,3 +1,4 @@
+function main() {
 var x = 0;
 var j = 1;
 
@@ -24,3 +25,4 @@ catch (e2) {
   x = x * 2;
 }
 return x;
+}

@@ -1,3 +1,4 @@
+function main() {
 var x=0;
 try {
     throw x;
@@ -5,4 +6,6 @@ try {
     while(x<10)
         x=x+1;
     
+}
+
 }

@@ -1,2 +1,4 @@
+function main() {
 return 10;
 return 20;
+}

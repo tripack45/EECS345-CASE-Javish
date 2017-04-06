@@ -1,3 +1,4 @@
+function main() {
 var x = 0;
 var result = 0;
 
@@ -9,3 +10,4 @@ while (x < 10) {
   x = x + 1;
 }
 return result;
+}

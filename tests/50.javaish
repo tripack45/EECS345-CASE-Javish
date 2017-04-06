@@ -1,4 +1,6 @@
+function main() {
 var x=10;
 while(x>0)
 break;
 return x;
+}

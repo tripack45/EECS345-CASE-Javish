@@ -1,3 +1,4 @@
+function main() {
 var a = 31160;
 var b = 1476;
 if (a < b) {
@@ -12,3 +13,4 @@ while (r != 0) {
   r = a % b;
 }
 return b;
+}

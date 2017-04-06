@@ -1,3 +1,4 @@
+function main() {
 var x = 1;
 var y = x + 1;
 if (x < y) {
@@ -10,3 +11,4 @@ if (x < y) {
   }
 }
 return x;
+}

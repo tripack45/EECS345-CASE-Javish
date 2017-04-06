@@ -1,3 +1,4 @@
+function main() {
 var x = 0;
 var y = x;
 var z = y;
@@ -25,3 +26,4 @@ while (1 == 1) {
     continue;
 }
 return x * 100 + y * 10 + z;
+}

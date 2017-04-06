@@ -1,3 +1,4 @@
+function main() {
 var x;
 
 try {
@@ -13,3 +14,4 @@ finally {
   x = x + 100;
 }
 return x;
+}

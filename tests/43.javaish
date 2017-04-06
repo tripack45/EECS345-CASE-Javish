@@ -1,3 +1,4 @@
+function main() {
 var x = 1;
 while (true) {
   x = x + 1;
@@ -5,3 +6,4 @@ while (true) {
    break;
 }
 return x;
+}
