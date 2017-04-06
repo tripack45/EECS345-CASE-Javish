@@ -380,20 +380,31 @@
 
 ; We need to verfiy that there is no name confilct in arguments...
 ; This ensures the binding of arguments always succeeds.
-(define (M-defFunction fname arglist body env k)
-  (if (not (unique? arglist))
-      (env-throw env (Exception+
-                      (list "Error in defining function" fname "\n"
-                            "Argument list contains two identical names") ))
-      (let* ([closure (env-getCurrentClosure env)]
-             [newFunction (Function arglist body closure)]
-             [n-env (env-defineVar! env fname newFunction)])
-        (if (iException? n-env)
-            (env-throw env (Exception+
-                            (list "Identifier for function" fname
-                                  "is already used!") ))
-            (k env (tvoid)) ))))
+(define (M-defFunction fname arg body env k)
 
+  (define (packArguments argList)
+    (cond
+      [(null? argList) '()]
+      [(equal? (car argList) '&)
+       (cons (cons '& (cadr argList))
+             (packArguments (cddr argList)))]
+      [else (cons (car argList)
+                  (packArguments (cdr argList)) )]))
+
+  (let ([arglist (packArguments arg)])
+    (if (not (unique? arglist))
+        (env-throw env (Exception+
+                        (list "Error in defining function" fname "\n"
+                              "Argument list contains two identical names") ))
+        (let* ([closure (env-getCurrentClosure env)]
+               [newFunction (Function arglist body closure)]
+               [n-env (env-defineVar! env fname newFunction)])
+          (if (iException? n-env)
+              (env-throw env (Exception+
+                              (list "Identifier for function" fname
+                                    "is already used!") ))
+              (k env (tvoid)) )))))
+  
 ; Steps in a function call:
 ; 0. Saves current closure
 ; 1. Request a valid callee from the state
@@ -450,11 +461,16 @@
         (k env (tvoid))
         ((lambda (newEnv)
            (if (iException? newEnv)
-               (env-throw (Exception "Unknown Exception")) ; This should never happen
+               (env-throw (env-replaceClosure env currentClosure)
+                          (Exception "Cannot take reference of rvalues"))
                (bindArguments (cdr formalArg)
                               (cdr realArg)
                               newEnv k )))
-         (env-defineVar! env (car formalArg) (car realArg)) )))
+         (let ([farg (car formalArg)]
+               [rarg (car realArg)])
+           (if (pair? farg) ; We have a reference
+               (env-defineRef! env (cdr farg) rarg)
+               (env-defineVar! env (car formalArg) (car realArg)) )))))
 
   (define (exit-call env k)
     (k (env-replaceClosure (env-cont-restoreall env k-save) currentClosure)))
@@ -554,6 +570,6 @@
           (testall-helper (add1 count) max))
         (display "Test completed")))
   ;(testall-helper 52 52))
-  (testall-helper 1 65))
+  (testall-helper 1 76))
 
 (testall)

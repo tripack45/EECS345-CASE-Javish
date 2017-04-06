@@ -80,7 +80,7 @@
 ; =========================================
 ; ============== WARNING ==================
 ; =========================================
-; Due to 3 calls to `set-box!` now the following
+; Due to 4 calls to `set-box!` now the following
 ; function calls are no longer side-effect-free
 ; I hope there is a better way to maintain the
 ; purity. Next time let's try monads.
@@ -96,6 +96,19 @@
                  (set-box! boxed-closure n-closure)
                  env ) ))
          (closure-defineVar (unbox boxed-closure) id value)) )
+      (dict-get env 'closure) ))))
+
+(define (env-defineRef! env id lvalue)
+  (call/cc
+   (lambda (throw)
+     ((lambda (boxed-closure)
+        ((lambda (n-closure)  
+           (if (iException? n-closure)
+               (throw n-closure)
+               (begin
+                 (set-box! boxed-closure n-closure)
+                 env ) ))
+         (closure-defineRef (unbox boxed-closure) id lvalue)) )
       (dict-get env 'closure) ))))
 
 (define (env-pushLayer! env)
@@ -177,6 +190,16 @@
      (dict-update+ env 'stack
      (lambda (stack)
        (let ([n-layer (layer-defineVar (car stack) id value)])
+         (if (iException? n-layer)
+             (throw n-layer)
+             (cons n-layer (cdr stack)) )))))))
+
+(define (closure-defineRef env id lvalue)
+  (call/cc
+   (lambda (throw)
+     (dict-update+ env 'stack
+     (lambda (stack)
+       (let ([n-layer (layer-defineRef (car stack) id lvalue)])
          (if (iException? n-layer)
              (throw n-layer)
              (cons n-layer (cdr stack)) )))))))
@@ -322,6 +345,16 @@
   (if (layer-varDefined? layer id)
       (iException+ (list "Multiple Definition: " id))
       (dict-add layer id (box (value-torvalue value))) ))
+
+; Inserts a new identifier that reference to an exisiting
+; variable into environment
+; REQUIRE : Current Environment does not contain a definition
+(define (layer-defineRef layer id lvalue)
+  (if (layer-varDefined? layer id)
+      (iException+ (list "Multiple Definition: " id))
+      (if (not (value-lvalue? lvalue))
+          (iException+ (list "Cannot create reference" id "to a rvalue"))
+          (dict-add layer id (value-lvalue lvalue)) )))
 
 ; Deletes an identifier from environment
 ; REQUIRE : Current env contains such id
