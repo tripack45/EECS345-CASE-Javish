@@ -1,0 +1,17 @@
+function f(x) {
+    var number = x;
+    function k() {
+        number = number + 1;
+        return number;
+    }
+    return k;
+}
+
+function main() {
+    var k = f(10);
+    k();
+    k();
+    k();
+    var p = f(100);
+    return k() + p();
+}
