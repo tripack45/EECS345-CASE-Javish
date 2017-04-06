@@ -56,7 +56,7 @@
   (match statement
     ('() (k env (tvoid))) ; empty statement
     (('function fname arglist body) (M-defFunction fname arglist body env k))
-    (('funcall name arglist) (M-callFunction fname arglist env k))
+    (('funcall fname arglist ...) (M-callFunction fname arglist env k))
     (('+ expr1 expr2) (M-binary-left-oper t/+ expr1 expr2 env k))
     (('- expr1 expr2) (M-binary-left-oper t/- expr1 expr2 env k))
     (('- expr) (M-unary-oper t/neg expr env k))
@@ -554,6 +554,6 @@
           (testall-helper (add1 count) max))
         (display "Test completed")))
   ;(testall-helper 52 52))
-  (testall-helper 1 53))
+  (testall-helper 1 65))
 
 (testall)
