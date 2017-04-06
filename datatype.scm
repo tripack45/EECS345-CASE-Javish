@@ -50,6 +50,20 @@
   (and (equal? (value-type value) 'Exception)
        (string? (value-v value)) ))
 
+; Function type
+(define (Function name arglist body closure)
+  (value-make (dict-make+ ('name 'arg 'body 'closure)
+                          (name arglist body closure) )
+               'Function) )
+
+(define (Function? value)
+  (equal? (value-type value) 'Function))
+
+(define (Function-name fun) (dict-get (value-v fun) 'name))
+(define (Function-arg fun) (dict-get (value-v fun) 'arg))
+(define (Function-body fun) (dict-get (value-v fun) 'body))
+(define (Function-closure fun) (dict-get (value-v fun) 'closure))
+
 ; Data-type to string
 
 (define (tostring value)
@@ -139,6 +153,10 @@
 ;                       (num 2)
 ;                       (num 3.0)
 ;                       (bool #t))))
+;(newline)
+;e1
+;(newline)
+;
 ;(value-torvalue (env-getVar e1 'a))
 ;
 ;(equal? (value-torvalue (env-getVar e1 'a))
@@ -148,11 +166,33 @@
 ;                        (env-getVar e1 'b)
 ;                        (num 10)))
 ;
-;(define e3 (env-defineVar e2 'k (num 123)))
+;(newline)
 ;
+;e2
+;
+;(newline)
+;
+;(define e3 (env-defineVar! e2 'k (num 123)))
+;
+;
+;(display "e3")
+;(newline)
 ;e3
+;(newline)
 ;
 ;(equal? (value-torvalue (env-getVar e2 'b)) (num 10))
 ;(equal? (value-torvalue (env-getVar e1 'b)) (num 10))
 ;(equal? (value-torvalue (env-getVar e2 'd)) (bool #t))
-  
+;
+;(display "pop layer: \n")
+;(env-popLayer! e3)
+;(display "push layer: \n")
+;(env-pushLayer! e3)
+;(display "push closure \n")
+;(env-pushClosure e3)
+;(env-pushClosure e3)
+;(env-pushClosure e3)
+;(env-pushClosure e3)
+;(env-pushClosure e3)
+;(env-pushClosure e3)
+;(env-pushClosure e3)

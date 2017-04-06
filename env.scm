@@ -37,35 +37,129 @@
       (unbox (dict-get (dict-get lvalue 'attr) 'lvalue))
       lvalue))
 
-; ========= 'env' class =============
-; 'env' objects are stateful now!
+; ========= 'Env' class =============
+; Closure is boxed object
+; This allows for a recursive structure
 
 (define (env-make)
-  (dict-make+ (list 'stack 'cont)
-              (list (list (layer-make))
+  (dict-make+ (list 'closure 'cont)
+              (list (box (closure-make '()))
                     (env-cont-make) )))
 
 (define (env-make+ l1 l2)
-  (dict-make+ (list 'stack 'cont)
-              (list (list (layer-make+ l1 l2))
+  (dict-make+ (list 'closure 'cont)
+              (list (box (closure-make+ l1 l2 '()))
                     (env-cont-make) )))
 
 (define (env-make-cont return throw miss)
-  (dict-make+ (list 'stack 'cont)
-              (list (list (layer-make))
+  (dict-make+ (list 'closure 'cont)
+              (list (box (closure-make '()))
                     (env-cont-make+ return throw miss) )))
 
-(define (env-varDefined? env id) '())
+(define (env-varDefined? env id) (error "Unimplemented!"))
 
 (define (env-assign! env lval value)
-    (if (not (value-lvalue? lval))
-      (iException (list "Trying to assign to rvalue."))
-      (let ([boxed-rvalue (value-lvalue lval)])
-        (begin
-          (set-box! boxed-rvalue (value-torvalue value))
-          env ))))
+   (let ([ret (closure-assign! env lval value)])
+     (if (not (iException? ret))
+         env
+         ret)))
 
 (define (env-getVar env id)
+  (define (getVar boxed-closure id)
+    (let ([closure (unbox boxed-closure)])
+      (if (null? closure)
+          (iException+ (list "Variable undeclared:" id))
+          ((lambda (lval)
+             (if (iException? lval)
+                 (getVar (closure-prev closure) id)
+                 lval ))
+           (closure-getVar closure id) ))))
+
+  (getVar (dict-get env 'closure) id) )
+
+; =========================================
+; ============== WARNING ==================
+; =========================================
+; Due to 3 calls to `set-box!` now the following
+; function calls are no longer side-effect-free
+; I hope there is a better way to maintain the
+; purity. Next time let's try monads.
+
+(define (env-defineVar! env id value)
+  (call/cc
+   (lambda (throw)
+     ((lambda (boxed-closure)
+        ((lambda (n-closure)  
+           (if (iException? n-closure)
+               (throw n-closure)
+               (begin
+                 (set-box! boxed-closure n-closure)
+                 env ) ))
+         (closure-defineVar (unbox boxed-closure) id value)) )
+      (dict-get env 'closure) ))))
+
+(define (env-pushLayer! env)
+  ((lambda (boxed-closure)
+     (begin
+       (set-box! boxed-closure
+                 (closure-pushLayer (unbox boxed-closure)))
+       env ))
+   (dict-get env 'closure) ))
+
+(define (env-popLayer! env)
+  (call/cc
+   (lambda (throw)
+     ((lambda (boxed-closure)
+       (begin
+         (set-box! boxed-closure
+                   ((lambda (ret)
+                      (if (iException? ret)
+                          (throw ret)
+                          ret))
+                    (closure-popLayer (unbox boxed-closure)) ))
+         env ))
+     (dict-get env 'closure) ))))
+
+; =========================================
+; ============== END ======================
+; =========================================
+
+; Makes a new closure and links current closure to that closure
+(define (env-pushClosure env)
+  (dict-update env 'closure
+               (box (closure-make (dict-get env 'closure) ))))
+
+(define (env-getCurrentClosure env)
+  (dict-get env 'closure) )
+
+(define (env-replaceClosure env c)
+  (dict-update env 'closure c) )
+
+; ========= 'Closure' class =============
+; 'Closure' objects are stateful now!
+
+(define (closure-make prev)
+  (dict-make+ (list 'stack 'prev)
+              (list (list (layer-make))
+                    prev )))
+
+(define (closure-make+ l1 l2 prev)
+  (dict-make+ (list 'stack 'prev)
+              (list (list (layer-make+ l1 l2))
+                    prev )))
+
+(define (closure-prev c)
+  (dict-get c 'prev))
+
+(define (closure-varDefined? c id) (error "Unimplemented!"))
+
+(define (closure-assign! c lval value)
+   (let ([ret (layer-assign! c lval value)])
+     (if (not (iException? ret))
+         c
+         ret)))
+
+(define (closure-getVar env id)
   (define (getVar stack id)
     (if (null? stack)
         (iException+ (list "Variable undeclared:" id))
@@ -77,7 +171,7 @@
 
   (getVar (dict-get env 'stack) id) )
 
-(define (env-defineVar env id value)
+(define (closure-defineVar env id value)
   (call/cc
    (lambda (throw)
      (dict-update+ env 'stack
@@ -87,12 +181,12 @@
              (throw n-layer)
              (cons n-layer (cdr stack)) )))))))
 
-(define (env-pushLayer env)
+(define (closure-pushLayer env)
   (dict-update+ env 'stack
                 (lambda (stack)
                   (cons (layer-make) stack) )))
 
-(define (env-popLayer env)
+(define (closure-popLayer env)
   (let ([stack (dict-get env 'stack)])
     (if (null? (cdr stack))
         (iException "Cannot pop last layer")
