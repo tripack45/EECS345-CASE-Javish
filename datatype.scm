@@ -1,6 +1,7 @@
 (load "common.scm")
 (load "env.scm")
 
+
 ; Datatypes:
 ; We have 2 internal datatypes currently
 ; 'number' type, given by "number?" procedure
@@ -51,15 +52,18 @@
        (string? (value-v value)) ))
 
 ; Function type
-(define (Function name arglist body closure)
-  (value-make (dict-make+ ('name 'arg 'body 'closure)
-                          (name arglist body closure) )
+; Note function name is NOT a property of a function
+; Mathematically only the MAPPING matters
+; Thus argument, body, closure and return type
+; But we don't have a return type :)
+(define (Function arglist body closure)
+  (value-make (dict-make+ (list 'arg 'body 'closure)
+                          (list arglist body closure) )
                'Function) )
 
 (define (Function? value)
   (equal? (value-type value) 'Function))
 
-(define (Function-name fun) (dict-get (value-v fun) 'name))
 (define (Function-arg fun) (dict-get (value-v fun) 'arg))
 (define (Function-body fun) (dict-get (value-v fun) 'body))
 (define (Function-closure fun) (dict-get (value-v fun) 'closure))

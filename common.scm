@@ -195,5 +195,19 @@
     ((fore back)
      (if (null? back) fore
          (append fore (cdr back)) ))))
+
+; Utils
+
+(define (memberOf? e list)
+  (cond
+    [(null? list) #f]
+    [(equal? e (car list)) #t]
+    [else (memberOf? e (cdr list))] ))
+
+(define (unique? list)
+  (cond
+    [(null? list) #t]
+    [(memberOf? (car list) (cdr list)) #f]
+    [else (unique? (cdr list))] ))
     
 

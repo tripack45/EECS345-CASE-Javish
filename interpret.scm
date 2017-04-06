@@ -6,7 +6,7 @@
 
 (require racket/trace)
 
-(load "simpleParser.scm")
+(load "functionParser.scm")
 (load "env.scm")
 (load "common.scm")
 (load "datatype.scm")
@@ -21,10 +21,15 @@
                              exception-continuation
                              exception-missing-cont ))
 
-  (exec prog env fall-through-continuation) )
+  (M-runner prog env fall-through-continuation) )
 
 (define (fall-through-continuation e v)
-  (error "Missing 'return'!"))
+  (if (tvoid? v)
+      (begin
+        (display "Execution Complete, no return value.")
+        (newline) )
+      (begin
+        (display (tostring v)) )))
 
 (define (return-continuation e v)
   (display (tostring v)))
@@ -40,10 +45,18 @@
 (define (exception-missing-cont id e v)
   (exception-continuation e (Exception+ (list "No place to" id) )))
 
+; Evaluates the top most layer and executes the main function
+(define (M-runner top-stat env k)
+  (exec top-stat env
+        (lambda (newEnv r)
+          (M-callFunction 'main '() newEnv k) )))
+
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
   (match statement
     ('() (k env (tvoid))) ; empty statement
+    (('function fname arglist body) (M-defFunction fname arglist body env k))
+    (('funcall name arglist) (M-callFunction fname arglist env k))
     (('+ expr1 expr2) (M-binary-left-oper t/+ expr1 expr2 env k))
     (('- expr1 expr2) (M-binary-left-oper t/- expr1 expr2 env k))
     (('- expr) (M-unary-oper t/neg expr env k))
@@ -116,7 +129,7 @@
               [else (k env var)] ))]))
 
 (define (M-declare sym init env k)
-  (let ([n-env (env-defineVar env sym init)])
+  (let ([n-env (env-defineVar! env sym init)])
       (if (iException? n-env)
           (env-throw env (Exception (iException-str n-env)))
           (k n-env (tvoid)) )))
@@ -190,7 +203,7 @@
   (define k-save (env-cont-saveall env))
 
   (define (finalize e)
-    (env-popLayer (env-cont-restoreall e k-save)))
+    (env-popLayer! (env-cont-restoreall e k-save)))
     
   (define append-finalize
     (lambda (k-prev)
@@ -207,7 +220,7 @@
   (let* ([env0 (env-cont-map env
                              (lambda (key cont)
                                (append-finalize cont)))]
-         [env4 (env-pushLayer env0)])
+         [env4 (env-pushLayer! env0)])
     (if (null? stmt)
         (k env (tvoid))
         (executeInLayer stmt env4 (append-finalize k)) )))
@@ -271,7 +284,7 @@
   (define (M-catch-block stmt id rst env k)
     
     (define (exit-catch e k)
-      (k (env-popLayer (env-cont-restoreall e k-save))) )
+      (k (env-popLayer! (env-cont-restoreall e k-save))) )
     (define modify-return/throw ; These two must preserve the passed value!
       (lambda (k-prev)
         (lambda (e v)
@@ -295,8 +308,8 @@
                                      [(eq? key 'continue) (modify-all cont)]
                                      [(eq? key 'break) (modify-all cont)]
                                      [else cont] )))]
-             [env4 (env-pushLayer envp)]
-             [env5 (env-defineVar env4 id rst)])
+             [env4 (env-pushLayer! envp)]
+             [env5 (env-defineVar! env4 id rst)])
         (k env5) ))
     
     (introduce-catch id rst env
@@ -362,7 +375,135 @@
                  (M-finally-block f-stmt e k-break) )))
 
 (define (M-try-no-finally t-stmt id c-stmt env k)
-  (M-try t-stmt id c-stmt '() env k) ) 
+  (M-try t-stmt id c-stmt '() env k) )
+
+
+; We need to verfiy that there is no name confilct in arguments...
+; This ensures the binding of arguments always succeeds.
+(define (M-defFunction fname arglist body env k)
+  (if (not (unique? arglist))
+      (env-throw env (Exception+
+                      (list "Error in defining function" fname "\n"
+                            "Argument list contains two identical names") ))
+      (let* ([closure (env-getCurrentClosure env)]
+             [newFunction (Function arglist body closure)]
+             [n-env (env-defineVar! env fname newFunction)])
+        (if (iException? n-env)
+            (env-throw env (Exception+
+                            (list "Identifier for function" fname
+                                  "is already used!") ))
+            (k env (tvoid)) ))))
+
+; Steps in a function call:
+; 0. Saves current closure
+; 1. Request a valid callee from the state
+; 2. Verify the number of arguments is correct
+; 3. Evaluate all argument (this must happen here)
+;    Since the evaluation must happen in current closure
+; ==== Following operation cannot be interrupted ======
+; ==== otherwise correctness is not guaranteed ========
+; 4. Use the callee's closure to replace current closure
+; 5. Push a new closure, (automatically a new layer)
+; 6. Bind the real arguments into formal argument
+; 7. Modify the continuations :
+;    * break / continue : clean up, and throw
+;    * return :  clean up, and invoke k
+;    * throw : clean up, and invoke throw
+; 
+; -1. Clean up:
+;     * Restore the original closure to replace
+;     * Restore the the original continuation
+;     * There is no need to "destroy" the old one (like layer).
+;       Some function may be using it / leave it to GC
+
+(define (M-callFunction fname realArg env k)
+
+  (define currentClosure (env-getCurrentClosure env))
+
+  (define k-save (env-cont-saveall env))
+
+  (define (getCallee return)
+    ((lambda (callee)
+       (cond
+         [(iException? callee)
+          (env-throw env (Exception+ (list "Undefined reference to function" fname)))]
+         [(not (Function? callee))
+          (env-throw env (Exception+ (list fname "is not a function!")))]
+         [else (return callee)] ))
+     (env-getVar env fname)))
+
+  ; Note order of evaluation is undefined
+  ; We assume left-to-right evaluation
+  ; Retuns (env-after-eval, evaluated arglist)
+  (define (eval-arguments argList env k)
+    (if (null? argList)
+        (k env '())
+        (M-stat (car argList) env
+                (lambda (newEnv arg0)
+                  (eval-arguments (cdr argList) newEnv
+                                  (lambda (finalEnv restArgList)
+                                    (k finalEnv (cons arg0 restArgList)) ))))))
+
+  ; Assumes formalArg and realArg has the same number of arguments
+  (define (bindArguments formalArg realArg env k)
+    (if (null? formalArg) 
+        (k env (tvoid))
+        ((lambda (newEnv)
+           (if (iException? newEnv)
+               (env-throw (Exception "Unknown Exception")) ; This should never happen
+               (bindArguments (cdr formalArg)
+                              (cdr realArg)
+                              newEnv k )))
+         (env-defineVar! env (car formalArg) (car realArg)) )))
+
+  (define (exit-call env k)
+    (k (env-replaceClosure (env-cont-restoreall env k-save) currentClosure)))
+
+  (define (modify-break/continue cont)
+    (lambda (env rst)
+      (exit-call env
+                 (lambda (restored-env)
+                   (env-throw restored-env
+                              (Exception "Error: Break/contiue not in a loop") )))))
+
+  (define (modify-throw/return cont)
+   (lambda (env rst)
+     (exit-call env
+                (lambda (restored-env)
+                  (cont restored-env rst) ))))
+  
+  (define (introduceCall env kp)
+    (kp (env-cont-map env
+                      (lambda (key cont)
+                        (cond
+                          [(eq? key 'throw) (modify-throw/return cont)]
+                          [(eq? key 'return) (modify-throw/return k)]
+                          [(eq? key 'continue) (modify-break/continue cont)]
+                          [(eq? key 'break) (modify-break/continue cont)]
+                          [else cont] )))))
+    
+  
+  (getCallee ; 1
+  (lambda (callee)
+    (let ([formalArg (Function-arg callee)])
+      (if (not (equal? (length formalArg) ; 2
+                       (length realArg)))
+          (env-throw env (Exception+ (list "Function" fname "called with wrong number of arguments\n"
+                                           "Expecting" (length formalArg)
+                                           "| Got" (length realArg))))
+          (eval-arguments realArg env ; 3
+          (lambda (evaledEnv realArgValue)
+            (let* ([calleePreClosure (env-replaceClosure evaledEnv (Function-closure callee))]
+                   [calleeClosureEnv (env-pushClosure calleePreClosure)]) ; 4 5
+              (bindArguments formalArg realArgValue calleeClosureEnv ; 6
+               (lambda (bindedEnv v)
+                 (introduceCall bindedEnv ; 7
+                 (lambda (calleeEnv)
+                   (exec (Function-body callee) calleeEnv
+                   (lambda (terminateEnv value) ; -1, no return called internally
+                     (env-return terminateEnv (tvoid)) ))))))))))))))
+                                                                 
+
 
 (define (dispValue v) v)
 
@@ -373,7 +514,7 @@
 
   (define (normal-cont env rst)
     (if (tvoid? rst)
-        (Exception "Missing return value!")
+        (display "No return value!")
         (begin
           ;(print "Env:") (newline) (print env) (newline)
           (tostring rst)) ))
@@ -394,7 +535,7 @@
                              (lambda (id env rst)
                                (err-cont env (Exception+ (list "No where to" id))) )))
   
-  (exec prog env normal-cont) )
+  (M-runner prog env normal-cont) )
 
 (define (testall)
   (define pre "tests/")
@@ -415,4 +556,4 @@
   ;(testall-helper 52 52))
   (testall-helper 1 53))
 
-;(testall)
+(testall)

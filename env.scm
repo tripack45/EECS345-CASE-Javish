@@ -66,9 +66,9 @@
 
 (define (env-getVar env id)
   (define (getVar boxed-closure id)
-    (let ([closure (unbox boxed-closure)])
-      (if (null? closure)
-          (iException+ (list "Variable undeclared:" id))
+    (if (null? boxed-closure)
+        (iException+ (list "Variable undeclared:" id))
+        (let ([closure (unbox boxed-closure)])
           ((lambda (lval)
              (if (iException? lval)
                  (getVar (closure-prev closure) id)
