@@ -27,7 +27,8 @@
 (define (value-type value) (dict-get value 'type))
 
 (define (value-lvalue? value)
-  (dict-exisist? (dict-get value 'attr) 'lvalue))
+  (if (not (dict? value)) #f
+      (dict-exist? (dict-get value 'attr) 'lvalue)))
 
 (define (value-lvalue value)
   (dict-get (dict-get value 'attr) 'lvalue))
@@ -56,82 +57,66 @@
               (list (box (closure-make '()))
                     (env-cont-make+ return throw miss) )))
 
-(define (env-varDefined? env id) (error "Unimplemented!"))
+(define (env-varDefined? env id)
+  (define (varDefined? boxed-closure id)
+    (cond
+      [(null? boxed-closure) #f]
+      [(closure-varDefined? (unbox boxed-closure) id) #t]
+      [else (varDefined? (closure-prev (unbox boxed-closure)) id)] ))
+  (varDefined? (dict-get env 'closure) id) )
 
 (define (env-assign! env lval value)
-   (let ([ret (closure-assign! env lval value)])
-     (if (not (iException? ret))
-         env
-         ret)))
+   (begin
+     (closure-assign! env lval value)
+     env ))
 
 (define (env-getVar env id)
   (define (getVar boxed-closure id)
     (if (null? boxed-closure)
-        (iException+ (list "Variable undeclared:" id))
+        (iException+ 'undefined-ref (list "Env Variable undeclared:" id))
         (let ([closure (unbox boxed-closure)])
-          ((lambda (lval)
-             (if (iException? lval)
-                 (getVar (closure-prev closure) id)
-                 lval ))
-           (closure-getVar closure id) ))))
-
+          (if (closure-varDefined? closure id)
+              (closure-getVar closure id)
+              (getVar (closure-prev closure) id) ))))
   (getVar (dict-get env 'closure) id) )
 
 ; =========================================
 ; ============== WARNING ==================
 ; =========================================
-; Due to 4 calls to `set-box!` now the following
+; Due to calls to `set-box!` now the following
 ; function calls are no longer side-effect-free
 ; I hope there is a better way to maintain the
 ; purity. Next time let's try monads.
 
-(define (env-defineVar! env id value)
-  (call/cc
-   (lambda (throw)
-     ((lambda (boxed-closure)
-        ((lambda (n-closure)  
-           (if (iException? n-closure)
-               (throw n-closure)
-               (begin
-                 (set-box! boxed-closure n-closure)
-                 env ) ))
-         (closure-defineVar (unbox boxed-closure) id value)) )
-      (dict-get env 'closure) ))))
-
-(define (env-defineRef! env id lvalue)
-  (call/cc
-   (lambda (throw)
-     ((lambda (boxed-closure)
-        ((lambda (n-closure)  
-           (if (iException? n-closure)
-               (throw n-closure)
-               (begin
-                 (set-box! boxed-closure n-closure)
-                 env ) ))
-         (closure-defineRef (unbox boxed-closure) id lvalue)) )
-      (dict-get env 'closure) ))))
-
-(define (env-pushLayer! env)
-  ((lambda (boxed-closure)
+(define (env-closureOp! op)
+  (lambda (env id value)
+    ((lambda (boxed-closure)
      (begin
        (set-box! boxed-closure
-                 (closure-pushLayer (unbox boxed-closure)))
+                 (op (unbox boxed-closure) id value ))
        env ))
-   (dict-get env 'closure) ))
+     (dict-get env 'closure) )))
+
+(define (env-layerOp! op)
+  (lambda (env)
+    ((lambda (boxed-closure)
+     (begin
+       (set-box! boxed-closure
+                 (op (unbox boxed-closure)))
+       env ))
+     (dict-get env 'closure) )) )
+
+(define (env-defineVar! env id value)
+  ((env-closureOp! closure-defineVar) env id value) )
+
+(define (env-defineRef! env id lvalue)
+  ((env-closureOp! closure-defineRef) env id lvalue) )
+
+(define (env-pushLayer! env)
+  ((env-layerOp! closure-pushLayer) env) )
 
 (define (env-popLayer! env)
-  (call/cc
-   (lambda (throw)
-     ((lambda (boxed-closure)
-       (begin
-         (set-box! boxed-closure
-                   ((lambda (ret)
-                      (if (iException? ret)
-                          (throw ret)
-                          ret))
-                    (closure-popLayer (unbox boxed-closure)) ))
-         env ))
-     (dict-get env 'closure) ))))
+  ((env-layerOp! closure-popLayer) env) )
 
 ; =========================================
 ; ============== END ======================
@@ -161,59 +146,52 @@
               (list (list (layer-make+ l1 l2))
                     prev )))
 
-(define (closure-prev c)
-  (dict-get c 'prev))
+(define (closure-prev c) (dict-get c 'prev))
 
-(define (closure-varDefined? c id) (error "Unimplemented!"))
+(define (closure-assign! closure lval value)
+   (begin
+     (layer-assign! closure lval value)
+     closure ))
 
-(define (closure-assign! c lval value)
-   (let ([ret (layer-assign! c lval value)])
-     (if (not (iException? ret))
-         c
-         ret)))
+(define (closure-varDefined? closure id)
+  (define (varDefined? stack id)
+    (cond
+      [(null? stack) #f]
+      [(layer-varDefined? (car stack) id) #t]
+      [else (varDefined? (cdr stack) id)] ))
+  (varDefined? (dict-get closure 'stack) id) )
 
-(define (closure-getVar env id)
+(define (closure-getVar closure id)
   (define (getVar stack id)
     (if (null? stack)
-        (iException+ (list "Variable undeclared:" id))
-        ((lambda (lval)
-           (if (iException? lval)
-               (getVar (cdr stack) id)
-               lval ))
-         (layer-getVar (car stack) id) )))
+        (iException+ 'undefined-ref (list "Closure: Variable undeclared:" id))
+        ((lambda (layer)
+           (if (layer-varDefined? layer id)
+               (layer-getVar layer id)
+               (getVar (cdr stack) id) ))
+         (car stack) )))
+  (getVar (dict-get closure 'stack) id) )
 
-  (getVar (dict-get env 'stack) id) )
+(define (closure-defineVar closure id value)
+  (dict-update+ closure 'stack
+  (lambda (stack)
+    (cons (layer-defineVar (car stack) id value) (cdr stack)) )))
 
-(define (closure-defineVar env id value)
-  (call/cc
-   (lambda (throw)
-     (dict-update+ env 'stack
-     (lambda (stack)
-       (let ([n-layer (layer-defineVar (car stack) id value)])
-         (if (iException? n-layer)
-             (throw n-layer)
-             (cons n-layer (cdr stack)) )))))))
+(define (closure-defineRef closure id lvalue)
+  (dict-update+ closure 'stack
+  (lambda (stack)
+    (cons (layer-defineRef (car stack) id lvalue) (cdr stack)) )))
 
-(define (closure-defineRef env id lvalue)
-  (call/cc
-   (lambda (throw)
-     (dict-update+ env 'stack
-     (lambda (stack)
-       (let ([n-layer (layer-defineRef (car stack) id lvalue)])
-         (if (iException? n-layer)
-             (throw n-layer)
-             (cons n-layer (cdr stack)) )))))))
-
-(define (closure-pushLayer env)
-  (dict-update+ env 'stack
+(define (closure-pushLayer closure)
+  (dict-update+ closure 'stack
                 (lambda (stack)
                   (cons (layer-make) stack) )))
 
-(define (closure-popLayer env)
-  (let ([stack (dict-get env 'stack)])
+(define (closure-popLayer closure)
+  (let ([stack (dict-get closure 'stack)])
     (if (null? (cdr stack))
-        (iException "Cannot pop last layer")
-        (dict-update env 'stack (cdr stack)) )))
+        (iException 'pop-last-layer "Cannot pop last layer")
+        (dict-update closure 'stack (cdr stack)) )))
 
 ; ========= 'Continuation Manager' ========
 ; Allows constructs to dynamically introduce new
@@ -231,53 +209,37 @@
                     (lambda (env rst) (miss 'continue env rst))
                     (lambda (env rst) (miss 'break env rst))  )))
 
+(define (env-cont-exists? env id)
+  (dict-exist? (dict-get env 'cont) id))
+
 (define (env-cont-add env id k)
-  (call/cc
-   (lambda (throw)
-     (dict-update+ env 'cont
-     (lambda (cont)
-       ((lambda (n-cont)
-          (if (iException? n-cont)
-              (throw n-cont)
-              n-cont ))
-        (dict-add cont id k) ))))))
+  (dict-update+ env 'cont
+                (lambda (cont) (dict-add cont id k)) ))
 
 (define (env-cont-remove env id)
   (dict-update+ env 'cont
-  (lambda (cont)
-    (dict-remove cont id) )))
+                (lambda (cont) (dict-remove cont id)) ))
 
 (define (env-cont-get env id)
-   (let ([cont-id (dict-get (dict-get env 'cont) id)])
-     (if (iException? cont-id)
-         (iException+ (list "Continuation" id "does not exist"))
-         cont-id )))
+  (dict-get (dict-get env 'cont) id) )
 
 (define (env-cont-update+ env id f)
-  (call/cc
-   (lambda (throw)
-     (dict-update+ env 'cont
-     (lambda (cont)
-       ((lambda (new-cont)
-          (if (iException? new-cont)
-              (throw new-cont)
-              new-cont))
-        (dict-update+ cont id f) ))))))
+  (dict-update+ env 'cont
+                (lambda (cont) (dict-update cont id f)) ))
 
 (define (env-cont-map env f)
   (dict-update+ env 'cont
-                (lambda (cont)
-                       (dict-map cont f))))
+                (lambda (cont) (dict-map cont f))))
 
 (define (env-cont update env id cont)
   (dict-update+ env id (lambda (k) cont)) )
 
 (define (env-cont-save env id)
   ((lambda (cont)
-     (if (iException? cont)
-         (list id (tvoid))
-         (list id cont) ))
-   (dict-get (dict-get env 'cont) id) ))
+     (if (dict-exist? cont id)
+         (dict-get cont id)
+         (list id (tvoid)) ))
+   (dict-get env 'cont) ))
 
 (define (env-cont-restore env saved-cont)
   (let* ([id (car saved-cont)]
@@ -299,10 +261,10 @@
   (env-cont-add (env-cont-remove env id) id cont))
 
 (define (env-follow cont-id env val)
-  (let ([cont (env-cont-get env cont-id)])
-    (if (iException? cont)
-        (env-throw env (Exception+ (list "There is no place to" cont-id)))
-        (cont env val)) ))
+  (if (env-cont-exists? env cont-id)
+      (let ([cont (env-cont-get env cont-id)])
+        (cont env val))
+      (env-throw env (Exception+ (list "There is no place to" cont-id))) ))
 
 
 ; two default continuations: 'throw' and 'return'
@@ -337,13 +299,13 @@
          l1 l2))
 
 (define (layer-varDefined? layer id)
-  (dict-exisist? layer id) )
+  (dict-exist? layer id) )
 
 ; Inserts a new variable into environment
 ; REQUIRE : Current Environment does not contain a definition
 (define (layer-defineVar layer id value)
   (if (layer-varDefined? layer id)
-      (iException+ (list "Multiple Definition: " id))
+      (iException+ 'multidef (list "Multiple Definition: " id))
       (dict-add layer id (box (value-torvalue value))) ))
 
 ; Inserts a new identifier that reference to an exisiting
@@ -351,9 +313,9 @@
 ; REQUIRE : Current Environment does not contain a definition
 (define (layer-defineRef layer id lvalue)
   (if (layer-varDefined? layer id)
-      (iException+ (list "Multiple Definition: " id))
+      (iException+ 'multidef (list "Multiple Definition: " id))
       (if (not (value-lvalue? lvalue))
-          (iException+ (list "Cannot create reference" id "to a rvalue"))
+          (iException+ 'expected-lval (list "Cannot create reference" id "to a rvalue"))
           (dict-add layer id (value-lvalue lvalue)) )))
 
 ; Deletes an identifier from environment
@@ -361,14 +323,15 @@
 (define (layer-undefVar layer id)
   (if (layer-varDefined? layer id)
       (dict-remove layer id)
-      (iException (list "Trying to undef non-existent var:" id)) ))
+      (iException+ 'undefined-ref
+                  (list "Trying to undef non-existent var:" id)) ))
 
 ; Assigns to an existing variable in environment
 ; REQUIRE : If the rvalue is already invalidated,
 ;           trying to assigning to this will result in undefined behavior!
 (define (layer-assign! layer lval value)
   (if (not (value-lvalue? lval))
-      (iException (list "Trying to assign to rvalue."))
+      (iException+ 'expected-lval (list "Trying to assign to rvalue."))
       (let ([boxed-rvalue (value-lvalue lval)])
         (begin
           (set-box! boxed-rvalue (value-torvalue value))
@@ -376,6 +339,7 @@
 
 ; Returns a lvalue
 (define (layer-getVar layer id)
-  (if (not (dict-exisist? layer id))
-      (iException+ (list "Variable undeclared: " id))
+  (if (not (dict-exist? layer id))
+      (iException+ 'undefined-ref
+                   (list "Variable undeclared: " id))
         (lvalue-make (dict-get layer id))))

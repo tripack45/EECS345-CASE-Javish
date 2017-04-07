@@ -14,7 +14,8 @@
 (define (num x)
   (if (number? x)
       (value-make x 'number)
-      (iException+ (list "Cannot form object type 'number' from" x)) ))
+      (iException+ 'type-badConstruction
+                   (list "Cannot form object type 'number' from" x)) ))
 
 (define (num? value)
   (and (equal? (value-type value) 'number)
@@ -24,7 +25,8 @@
 (define (bool x)
   (if (boolean? x)
       (value-make x 'boolean)
-      (iException+ (list "Cannot form object type 'boolean' from" x)) ))
+      (iException+ 'type-badConstruction
+                   (list "Cannot form object type 'boolean' from" x)) ))
 
 (define (bool? value)
   (and (equal? (value-type value) 'boolean)
@@ -33,19 +35,22 @@
 (define (bool-true? x)
   (if (bool? x)
       (value-v x)
-      (iException+ (list "Boolean value expected, got" (value-type x)) )))
+      (iException+ 'typeError
+                   (list "Boolean value expected, got" (value-type x)) )))
 
 ; Exception type
 (define (Exception msg)
   (if (string? msg)
       (value-make msg 'Exception)
-      (iException+ (list "Cannot form object type 'Exception' from" msg)) ))
+      (iException+ 'type-badConstruction
+                   (list "Cannot form object type 'Exception' from" msg)) ))
 
 (define (Exception+ list)
   (let ([msg (form-string list)])
     (if (string? msg)
         (value-make msg 'Exception)
-        (iException+ (list "Cannot form object type 'Exception' from list")) )))
+        (iException+ 'type-badConstruction
+                     (list "Cannot form object type 'Exception' from list")) )))
 
 (define (Exception? value)
   (and (equal? (value-type value) 'Exception)
@@ -97,7 +102,8 @@
     (cond
       [(or (not (input-type? v1))
            (not (input-type? v2)) )
-       (iException+ (list "No overload for" op "over type"
+       (iException+ 'unexpected-type
+                    (list "No overload for" op "over type"
                           (value-type v1) "and" (value-type v2)))]
       [else (ret-type (op (value-v v1)
                           (value-v v2)))] )))
@@ -106,7 +112,8 @@
   (lambda (v)
     (cond
       [(not (input-type? v))
-       (iException+ (list "No overload for unary" op "over type" (value-type v)))]
+       (iException+ 'unexpected-type
+                    (list "No overload for unary" op "over type" (value-type v)))]
       [else (ret-type (op (value-v v)))] )))
 
 
@@ -116,17 +123,17 @@
 (define (homogenous-equiv v1 v2)
   (cond
     [(or (tvoid? v1) (tvoid? v2))
-     (iException "Cannot compare against non-exisistent values.")]
+     (iException 'unexpected-type
+                 "Cannot compare against non-exisistent values.")]
     [(not (equal? (value-type v1) (value-type v2)))
-     (iException+ (list "Cannot compare" (value-type v1)
+     (iException+ 'unexpected-type
+                  (list "Cannot compare" (value-type v1)
                         "against" (value-type v2) ))]
     [else (bool (equal? (value-v v1)
                         (value-v v2) ))]))
 
 (define (homogenous-inequiv v1 v2)
-  (let ([ret (homogenous-equiv v1 v2)])
-    (if (iException? ret) ret
-        (t/! ret) )))
+  (t/! (homogenous-equiv v1 v2)) )
             
 
 ; Short hand for "typed/+"
@@ -188,10 +195,10 @@
 ;(equal? (value-torvalue (env-getVar e1 'b)) (num 10))
 ;(equal? (value-torvalue (env-getVar e2 'd)) (bool #t))
 ;
-;(display "pop layer: \n")
-;(env-popLayer! e3)
 ;(display "push layer: \n")
 ;(env-pushLayer! e3)
+;(display "pop layer: \n")
+;(env-popLayer! e3)
 ;(display "push closure \n")
 ;(env-pushClosure e3)
 ;(env-pushClosure e3)

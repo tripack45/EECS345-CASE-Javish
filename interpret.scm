@@ -13,6 +13,9 @@
 
 ;(define sampleProg (parser "test.javaish"))
 
+(define (defaultIEHandler env)
+  (lambda (ie) (env-throw env (Exception (cadr ie)))))
+
 (define (interpret file)
 
   (define prog (parser file))
@@ -105,10 +108,8 @@
           (lambda (lenv lrst)
             (M-stat rhs lenv
                     (lambda (renv rrst)
-                      (let ([val (op lrst rrst)])
-                        (if (iException? val)
-                            (env-throw renv (Exception (iException-str val)))
-                            (k renv val) )))))))
+                        (let ([val (op lrst rrst)])
+                          (k renv val) ))))))
 
 (define (M-unary-oper op expr env k)
   (M-stat expr env 
@@ -121,35 +122,37 @@
   (cond
     [(equal? sym 'true) (k env (bool #t))]
     [(equal? sym 'false) (k env (bool #f))]
-    [else (let ((var (env-getVar env sym)))
-            (cond
-              [(iException? var) (env-throw env (Exception (iException-str var)))]
-              [(tvoid? var)
-               (env-throw env (Exception+ (list "Use of uninitialized value:" sym)))]
-              [else (k env var)] ))]))
+    [else (if (not (env-varDefined? env sym))
+              (env-throw env (Exception+ (list "Use of undefined variable" sym)))
+              (let ([var (env-getVar env sym)])
+                (cond
+                  [(tvoid? var) (env-throw env (Exception+ (list "Use of uninitialized value:" sym)))]
+                  [else (k env var)] )))]))
 
 (define (M-declare sym init env k)
-  (let ([n-env (env-defineVar! env sym init)])
-      (if (iException? n-env)
-          (env-throw env (Exception (iException-str n-env)))
-          (k n-env (tvoid)) )))
+  (if (env-varDefined? env sym)
+      (env-throw env (Exception+ (list "Redefinition of variable" sym)))
+      (let ([n-env (env-defineVar! env sym init)])
+        (k n-env (tvoid)) )))
 
 (define (M-declare-expr sym expr env k)
-  (M-stat expr env 
-          (lambda (e rst) (M-declare sym rst e k) )))
+   (if (env-varDefined? env sym)
+       (env-throw env (Exception+ (list "Redefinition of variable" sym)))
+       (M-stat expr env 
+               (lambda (e rst) (M-declare sym rst e k) ))))
 
 
 ; Unlike C/Java assignment returns rvalue!
 (define (M-assignment sym expr env k)
   (M-stat expr env 
   (lambda (e rst)
-    (let ([lval (env-getVar e sym)])
-      (if (iException? lval)
-          (env-throw e (Exception (iException-str lval)))
-          (let ([n-env (env-assign! e lval rst)])
-            (if (iException? n-env)
-                (env-throw n-env (Exception (iException-str n-env)))
-                (k n-env rst)) ))))))
+    (if (not (env-varDefined? e sym))
+        (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
+        (let ([lval (env-getVar e sym)])
+          (if (value-lvalue? lval)
+              (let ([n-env (env-assign! e lval rst)])
+                (k n-env rst) )
+              (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) ))))))
 
 (define (M-return expr env k)
   (M-stat expr env 
@@ -396,14 +399,13 @@
         (env-throw env (Exception+
                         (list "Error in defining function" fname "\n"
                               "Argument list contains two identical names") ))
-        (let* ([closure (env-getCurrentClosure env)]
-               [newFunction (Function arglist body closure)]
-               [n-env (env-defineVar! env fname newFunction)])
-          (if (iException? n-env)
-              (env-throw env (Exception+
-                              (list "Identifier for function" fname
-                                    "is already used!") ))
-              (k env (tvoid)) )))))
+        (if (env-varDefined? env fname)
+            (env-throw env (Exception+ (Exception+ (list "Identifier for function" fname
+                                                         "is already used!" ))))
+            (let* ([closure (env-getCurrentClosure env)]
+                   [newFunction (Function arglist body closure)]
+                   [n-env (env-defineVar! env fname newFunction)])
+            (k env (tvoid)) )))))
   
 ; Steps in a function call:
 ; 0. Saves current closure
@@ -436,12 +438,12 @@
   (define (getCallee return)
     ((lambda (callee)
        (cond
-         [(iException? callee)
-          (env-throw env (Exception+ (list "Undefined reference to function" fname)))]
          [(not (Function? callee))
           (env-throw env (Exception+ (list fname "is not a function!")))]
          [else (return callee)] ))
-     (env-getVar env fname)))
+     (if (env-varDefined? env fname)
+         (env-getVar env fname)
+         (env-throw env (Exception+ (list "Undefined reference to function" fname))) )))
 
   ; Note order of evaluation is undefined
   ; We assume left-to-right evaluation
@@ -459,17 +461,17 @@
   (define (bindArguments formalArg realArg env k)
     (if (null? formalArg) 
         (k env (tvoid))
-        ((lambda (newEnv)
-           (if (iException? newEnv)
-               (env-throw (env-replaceClosure env currentClosure)
-                          (Exception "Cannot take reference of rvalues"))
-               (bindArguments (cdr formalArg)
-                              (cdr realArg)
-                              newEnv k )))
-         (let ([farg (car formalArg)]
-               [rarg (car realArg)])
-           (if (pair? farg) ; We have a reference
-               (env-defineRef! env (cdr farg) rarg)
+        (let ([farg (car formalArg)]
+              [rarg (car realArg)])
+          (if (pair? farg) ; We have a reference
+              (if (value-lvalue? rarg)
+                  ((lambda (newEnv)
+                     (bindArguments (cdr formalArg) (cdr realArg) newEnv k))
+                   (env-defineRef! env (cdr farg) rarg) )
+                  (env-throw (env-replaceClosure env currentClosure)
+                             (Exception "Cannot take reference of rvalues")))
+              ((lambda (newEnv)
+                 (bindArguments (cdr formalArg) (cdr realArg) newEnv k))
                (env-defineVar! env (car formalArg) (car realArg)) )))))
 
   (define (exit-call env k)
@@ -523,7 +525,7 @@
 
 (define (dispValue v) v)
 
-;(trace interpret)
+(trace interpret)
 ;(trace M-stat)
 
 (define (interpret! file)

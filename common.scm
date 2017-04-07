@@ -73,22 +73,40 @@
 
 ; Internal Exception Type
 
-(define (iException text)
-  (box (lambda () text)) )
+(define (iException type text) (raise (list type text) #t) )
 
-(define (iException? e)
-  (and (box? e)
-       (procedure? (unbox e)) ))
+;(define (iException type text) (error text))
 
-(define (iException+ list)
-  (iException (form-string list)) )
+;(define (iException? e)
+;  (and (box? e)
+;       (procedure? (unbox e)) ))
 
-(define (iException-str e)
-  ((unbox e)) )
+(define (iException+ type list)
+  (iException type (form-string list)) )
+
+(define (iExceptionOf? type)
+  (lambda (ie)
+    (cond
+      [(not (pair? ie)) #f]
+      [(not (eq? (length ie) 2)) #f]
+      [else (if (eq? type 'any) #t
+                (eq? (car ie) type) )])))
+
+(define iExceptionAny? (iExceptionOf? 'any))
+
+(define (iException-toStr ie) (cadr ie))
+
+;(define (iException-str e)
+;  ((unbox e)) )
       
 ; Dictionary Type
 
 (define (dict-make) '())
+
+(define (dict? d)
+  (match d
+    (((key value) ...) #t)
+    (_ #f)))
 
 (define (dict-make+ keylist vallist)
   (if (null? keylist) '()
@@ -104,21 +122,27 @@
 (define (dict-cmpkey key)
   (lambda (pair) (equal? (car pair) key)) )
 
-(define (dict-exisist? dict key)
-  (match (split+ dict (dict-cmpkey key))
-    ((fore back) (not (null? back))) ))
+(define (dict-exist? dict key)
+  (if (not (dict? dict))
+      (iException 'not-dict "Not a dictionary")
+      (match (split+ dict (dict-cmpkey key))
+        ((fore back) (not (null? back))) )))
 
 (define (dict-get dict key)
-  (match (split+ dict (dict-cmpkey key))
-    ((fore back)
-     (if (null? back)
-         (iException+ (list "Dictionary: retrieved key" key "does not exists."))
-         (cadr (car back)) ))))
+  (if (not (dict? dict))
+      (iException 'not-dict ":dict-get Not a dictionary")
+      (match (split+ dict (dict-cmpkey key))
+        ((fore back)
+         (if (null? back)
+             (iException+ 'missing-key (list "Dictionary: retrieved key" key "does not exists."))
+             (cadr (car back)) )))))
 
 (define (dict-add dict key value)
-  (if (dict-exisist? dict key)
-      (iException+ (list "Dictionary: key" key "already exists."))
-      (cons (dict-pair-make key value) dict) ))
+  (if (not (dict? dict))
+      (iException 'not-dict "Not a dictionary")
+      (if (dict-exist? dict key)
+          (iException+ 'multiple-key (list "Dictionary: key" key "already exists."))
+          (cons (dict-pair-make key value) dict) )))
 
 ; Performs deep copy of given dict
 (define (dict-clone dict)
@@ -130,30 +154,37 @@
   
 ; Update without side effect
 (define (dict-update dict key newValue)
-  (match (split+ dict (dict-cmpkey key))
-    ((fore back)
-     (if (null? back)
-         (iException+ (list "Dictionary: updated key" key "does not exists."))
-         (let ([pair (car back)])
-           (append fore
-                   (cons (dict-pair-make key newValue)
-                         (cdr back) )))))))
+  (if (not (dict? dict))
+      (iException 'not-dict "dict-update: Not a dictionary")
+      (match (split+ dict (dict-cmpkey key))
+        ((fore back)
+         (if (null? back)
+             (iException+ 'missing-key (list "Dictionary: updated key" key "does not exists."))
+             (let ([pair (car back)])
+               (append fore
+                       (cons (dict-pair-make key newValue)
+                             (cdr back) ))))))))
 
 (define (dict-update+ dict key f)
-  (match (split+ dict (dict-cmpkey key))
-    ((fore back)
-     (if (null? back)
-         (iException+ (list "Dictionary: updated key" key "does not exists."))
-         (let ([pair (car back)])
-           (append fore
-                   (cons (dict-pair-make key (f (cadr pair)))
-                         (cdr back) )))))))
+  (if (not (dict? dict))
+      (iException 'not-dict "Not a dictionary")
+      (match (split+ dict (dict-cmpkey key))
+        ((fore back)
+         (if (null? back)
+             (iException+ 'missing-key (list "dict-update+: Dictionary: updated key" key "does not exists."))
+             (let ([pair (car back)])
+               (append fore
+                       (cons (dict-pair-make key (f (cadr pair)))
+                             (cdr back) ))))))))
+
 ; F expects to take in 2 values
 ; an key and a value
 (define (dict-map dict f)
-  (letrec ([fp (lambda (pair) (list (car pair)
+  (if (not (dict? dict))
+      (iException 'not-dict "dict-map: Not a dictionary")
+      (letrec ([fp (lambda (pair) (list (car pair)
                                     (apply f pair) ))])
-    (map fp dict) ))
+        (map fp dict) )))
 
 ; Removes the item given by key
 ; if item does not exists, does nothing
@@ -187,7 +218,7 @@
    
 (define (set-add set elem)
   (if (set-memberof? set elem)
-      (iException+ (list "Set: element" elem "already exist!"))
+      set
       (cons elem set) ))
 
 (define (set-remove set elem)
