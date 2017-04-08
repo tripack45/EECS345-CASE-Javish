@@ -1,17 +1,18 @@
-function f(x) {
+function f(x, y) {
     var number = x;
     function k() {
-        number = number + 1;
+        number = number + y;
         return number;
     }
     return k;
 }
 
 function main() {
-    var k = f(10);
+    var k = f(10,1);
     k();
     k();
     k();
-    var p = f(100);
+    var p = f(100, 20);
+    p();
     return k() + p();
 }

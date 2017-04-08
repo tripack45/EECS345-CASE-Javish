@@ -39,6 +39,7 @@
                    (list "Boolean value expected, got" (value-type x)) )))
 
 ; Exception type
+;(define Exception error)
 (define (Exception msg)
   (if (string? msg)
       (value-make msg 'Exception)

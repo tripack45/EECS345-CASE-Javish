@@ -65,6 +65,13 @@
       [else (varDefined? (closure-prev (unbox boxed-closure)) id)] ))
   (varDefined? (dict-get env 'closure) id) )
 
+(define (env-varDefinedInClosure? env id)
+  ((lambda (boxed-closure)
+     (if (null? boxed-closure)
+         #f
+         (closure-varDefined? (unbox boxed-closure) id) ))
+   (dict-get env 'closure) ))
+
 (define (env-assign! env lval value)
    (begin
      (closure-assign! env lval value)
@@ -117,6 +124,16 @@
 
 (define (env-popLayer! env)
   ((env-layerOp! closure-popLayer) env) )
+
+(define (env-countTopClosureLayer env)
+  (closure-countLayer (unbox (dict-get env 'closure))))
+
+(define (env-countClosureDepth env)
+  (letrec ([count (lambda (boxed-closure)
+                    (if (null? boxed-closure)
+                        0
+                        (add1 (count (dict-get (unbox boxed-closure) 'prev))) ))])
+    (count (dict-get env 'closure)) ))
 
 ; =========================================
 ; ============== END ======================
@@ -192,6 +209,9 @@
     (if (null? (cdr stack))
         (iException 'pop-last-layer "Cannot pop last layer")
         (dict-update closure 'stack (cdr stack)) )))
+
+(define (closure-countLayer closure)
+  (length (dict-get closure 'stack)))
 
 ; ========= 'Continuation Manager' ========
 ; Allows constructs to dynamically introduce new

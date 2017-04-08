@@ -56,6 +56,20 @@
 
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
+  (begin
+;    (newline)
+;    (displayln statement)
+;    (displayln (if (env-varDefined? env 'x)
+;                   (value-torvalue (env-getVar env 'x))
+;                   "Not Exists"))
+;    (displayln (if (env-varDefined? env 'i)
+;                   (value-torvalue (env-getVar env 'i))
+;                   "Not Exists"))
+;    (displayln (if (env-varDefined? env 'j)
+;                   (value-torvalue (env-getVar env 'j))
+;                   "Not Exists"))
+;    (displayln (env-countTopClosureLayer env))
+;    (displayln (env-countClosureDepth env))
   (match statement
     ('() (k env (tvoid))) ; empty statement
     (('function fname arglist body) (M-defFunction fname arglist body env k))
@@ -92,7 +106,7 @@
     ((cons x y) (error "Unrecogonized identifier"))
     ((? number? x) (M-num-literal x env k))
     (sym (M-symbol statement env k))
-    (_ (Exception "Match failed")) ))
+    (_ (Exception "Match failed")) )))
 
 
 ; Executes a seriers of code
@@ -130,13 +144,12 @@
                   [else (k env var)] )))]))
 
 (define (M-declare sym init env k)
-  (if (env-varDefined? env sym)
+  (if (env-varDefinedInClosure? env sym)
       (env-throw env (Exception+ (list "Redefinition of variable" sym)))
-      (let ([n-env (env-defineVar! env sym init)])
-        (k n-env (tvoid)) )))
+      (k (env-defineVar! env sym init) (tvoid)) ))
 
 (define (M-declare-expr sym expr env k)
-   (if (env-varDefined? env sym)
+   (if (env-varDefinedInClosure? env sym)
        (env-throw env (Exception+ (list "Redefinition of variable" sym)))
        (M-stat expr env 
                (lambda (e rst) (M-declare sym rst e k) ))))
@@ -219,13 +232,18 @@
         (M-stat (car stmt) env
                 (lambda (e v)
                   (executeInLayer (cdr stmt) e k)))))
-  
+
+  ; Here were a very trick bug
+  ; Since we changed 'env-pushLayer'
+  ; from side-effect free to side-effect aware
+  ; env is already changed after the execution of
+  ; let statements. This is pretty dangerous indeed
   (let* ([env0 (env-cont-map env
                              (lambda (key cont)
                                (append-finalize cont)))]
          [env4 (env-pushLayer! env0)])
     (if (null? stmt)
-        (k env (tvoid))
+        ((append-finalize k) env (tvoid)) 
         (executeInLayer stmt env4 (append-finalize k)) )))
 
 (define (M-break env k)
@@ -525,7 +543,7 @@
 
 (define (dispValue v) v)
 
-(trace interpret)
+;(trace interpret)
 ;(trace M-stat)
 
 (define (interpret! file)
@@ -571,7 +589,7 @@
           (newline)
           (testall-helper (add1 count) max))
         (display "Test completed")))
-  ;(testall-helper 52 52))
+  ;(testall-helper 46 46))
   (testall-helper 1 77))
 
 (testall)
