@@ -1,0 +1,10 @@
+var x = 1;
+
+function x() {
+	return 10;
+}
+
+function main() {
+	return x();
+}
+

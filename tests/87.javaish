@@ -1,0 +1,10 @@
+function add(a, b) {
+	throw a + b;
+}
+
+function main () {
+	while (1 > 0) {
+		add(1, 2);
+	}
+	return 10;
+}

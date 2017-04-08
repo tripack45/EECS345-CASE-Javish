@@ -1,0 +1,12 @@
+function add(a, b) {
+	return a + b;
+}
+
+function ref(a) {
+	return a;
+}
+
+function main () {
+	var x = 1;
+	return ref(add);
+}

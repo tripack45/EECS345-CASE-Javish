@@ -1,0 +1,7 @@
+function x(a, a) {
+	return a + a;
+}
+
+function main () {
+	return x();
+}
