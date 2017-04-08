@@ -83,6 +83,7 @@
     [(bool? value) (if (value-v value)
                           "true"
                           "false")]
+    [(Function? value) (string-append "<FUNCTION>")]
     [(Exception? value) (string-append "Exception: " (value-v value))]
     [else "Unknown datatype."] ))
 
@@ -158,7 +159,7 @@
 (define t/neg (unary-op - num? num))
 (define t/! (unary-op lnot bool? bool))
 
-; Tests
+;Tests
 ;(define e1 (env-make+ '(a b c d)
 ;                      (list
 ;                       (num 1)

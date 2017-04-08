@@ -418,12 +418,13 @@
                         (list "Error in defining function" fname "\n"
                               "Argument list contains two identical names") ))
         (if (env-varDefined? env fname)
-            (env-throw env (Exception+ (Exception+ (list "Identifier for function" fname
-                                                         "is already used!" ))))
+            (env-throw env (Exception+
+                            (list "Identifier for function" fname
+                                  "is already used!" )))
             (let* ([closure (env-getCurrentClosure env)]
                    [newFunction (Function arglist body closure)]
-                   [n-env (env-defineVar! env fname newFunction)])
-            (k env (tvoid)) )))))
+                   [n-env (env-defineConst! env fname newFunction)])
+              (k env (tvoid)) )))))
   
 ; Steps in a function call:
 ; 0. Saves current closure
@@ -590,6 +591,6 @@
           (testall-helper (add1 count) max))
         (display "Test completed")))
   ;(testall-helper 46 46))
-  (testall-helper 1 77))
+  (testall-helper 1 87))
 
 ;(testall)

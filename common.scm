@@ -199,27 +199,37 @@
 
 (define (set-make) '())
 
+(define (set? s)
+  (match s
+    ((e ...) #t)
+    (_ #f) ))
+
 (define (set-make+ list)
   (define (set-make+-acc acc list)
     (cond
       [(null? list) acc]
-      [(set-memberof? acc (car list))
+      [(set-memberOf? acc (car list))
        (set-make+-acc acc (cdr list))]
       [else (set-make+-acc (set-add acc (car list))
                            (cdr list) )]))
 
   (set-make+-acc (set-make) list))
 
-(define (set-memberof? set elem)
-  (cond
-    [(null? set) #f]
-    [(equal? (car set) elem) #t]
-    [else (set-memberof? (cdr set) elem)] ))
+(define (set-memberOf? set elem)
+  (if (set? set)
+      (cond
+        [(null? set) #f]
+        [(equal? (car set) elem) #t]
+        [else (set-memberOf? (cdr set) elem)] )
+      (iException 'not-set "set-memberof?: Not a set") ))
    
 (define (set-add set elem)
-  (if (set-memberof? set elem)
-      set
-      (cons elem set) ))
+  (if (set? set)
+      (if (set-memberOf? set elem)
+          set
+          (cons elem set) )
+      (iException 'not-set "set-add: Not a set") ))
+  
 
 (define (set-remove set elem)
   (match (split set elem)

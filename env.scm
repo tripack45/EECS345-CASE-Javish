@@ -119,6 +119,9 @@
 (define (env-defineRef! env id lvalue)
   ((env-closureOp! closure-defineRef) env id lvalue) )
 
+(define (env-defineConst! env id value)
+  ((env-closureOp! closure-defineConst) env id value))
+
 (define (env-pushLayer! env)
   ((env-layerOp! closure-pushLayer) env) )
 
@@ -198,6 +201,11 @@
   (dict-update+ closure 'stack
   (lambda (stack)
     (cons (layer-defineRef (car stack) id lvalue) (cdr stack)) )))
+
+(define (closure-defineConst closure id value)
+  (dict-update+ closure 'stack
+  (lambda (stack)
+    (cons (layer-defineConst (car stack) id value) (cdr stack)) )))
 
 (define (closure-pushLayer closure)
   (dict-update+ closure 'stack
@@ -326,7 +334,9 @@
 (define (layer-defineVar layer id value)
   (if (layer-varDefined? layer id)
       (iException+ 'multidef (list "Multiple Definition: " id))
-      (dict-add layer id (box (value-torvalue value))) ))
+      (dict-add layer id
+                (list (box (value-torvalue value))
+                      (set-make) ))))
 
 ; Inserts a new identifier that reference to an exisiting
 ; variable into environment
@@ -336,7 +346,20 @@
       (iException+ 'multidef (list "Multiple Definition: " id))
       (if (not (value-lvalue? lvalue))
           (iException+ 'expected-lval (list "Cannot create reference" id "to a rvalue"))
-          (dict-add layer id (value-lvalue lvalue)) )))
+          (dict-add layer id
+                    (list (value-lvalue lvalue)
+                          (set-make+ '(reference)) )))))
+
+; Inserts a new identifier that associates with an const
+; A const is a variable that cannot be assigned to in any way
+; variable into environment
+; REQUIRE : Current Environment does not contain a definition
+(define (layer-defineConst layer id value)
+  (if (layer-varDefined? layer id)
+      (iException+ 'multidef (list "Multiple Definition: " id))
+      (dict-add layer id
+                (list (box (value-torvalue value))
+                      (set-make+ '(const)) ))))
 
 ; Deletes an identifier from environment
 ; REQUIRE : Current env contains such id
@@ -362,4 +385,8 @@
   (if (not (dict-exist? layer id))
       (iException+ 'undefined-ref
                    (list "Variable undeclared: " id))
-        (lvalue-make (dict-get layer id))))
+      ((lambda (var)
+         (if (set-memberOf? (cadr var) 'const)
+             (unbox (car var))
+             (lvalue-make (car var)) ))
+       (dict-get layer id) )))
