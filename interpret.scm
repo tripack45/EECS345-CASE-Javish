@@ -6,7 +6,7 @@
 
 (require racket/trace)
 
-(load "functionParser.scm")
+(load "classParser.scm")
 (load "env.scm")
 (load "common.scm")
 (load "datatype.scm")
@@ -16,7 +16,7 @@
 (define (defaultIEHandler env)
   (lambda (ie) (env-throw env (Exception (cadr ie)))))
 
-(define (interpret file)
+(define (interpret file classname)
 
   (define prog (parser file))
   
@@ -24,7 +24,7 @@
                              exception-continuation
                              exception-missing-cont ))
 
-  (M-runner prog env fall-through-continuation) )
+  (M-runner prog classname env fall-through-continuation) )
 
 (define (fall-through-continuation e v)
   (if (tvoid? v)
@@ -49,8 +49,8 @@
   (exception-continuation e (Exception+ (list "No place to" id) )))
 
 ; Evaluates the top most layer and executes the main function
-(define (M-runner top-stat env k)
-  (exec top-stat env
+(define (M-runner top-stat classname env k)
+  (exec top-stat classname env
         (lambda (newEnv r)
           (M-callFunction 'main '() newEnv k) )))
 
@@ -72,6 +72,7 @@
 ;    (displayln (env-countClosureDepth env))
   (match statement
     ('() (k env (tvoid))) ; empty statement
+    (('class cname parent body) (M-defclass cname parent body env k))
     (('function fname arglist body) (M-defFunction fname arglist body env k))
     (('funcall fname arglist ...) (M-callFunction fname arglist env k))
     (('+ expr1 expr2) (M-binary-left-oper t/+ expr1 expr2 env k))
@@ -110,12 +111,14 @@
 
 
 ; Executes a seriers of code
-(define (exec stmt-list env k)
-    (if (null? stmt-list)
-        (k env (tvoid))
-        (M-stat (car stmt-list) env  
-                (lambda (e rst)
-                  (exec (cdr stmt-list) e k) ))))
+(define (exec stmt-list classname env k)
+    (cond
+      [(null? stmt-list) (k env (tvoid))]               ;env should be changed
+      [(eq? (caar stmt-list) 'class) (M-stat (car stmt-list) env
+                                             (lambda (e rst)
+                                               (exec (cdr stmt-list) classname e k) ))]
+      [(else (error "Should be class"))] ))
+  
 
 (define (M-binary-left-oper op lhs rhs env k)
   (M-stat lhs env 
@@ -539,8 +542,17 @@
                    (exec (Function-body callee) calleeEnv
                    (lambda (terminateEnv value) ; -1, no return called internally
                      (env-return terminateEnv (tvoid)) ))))))))))))))
-                                                                 
 
+(define (M-defclass cname parent body env k)
+  (cond
+    [(null? parent) '()]
+    [(env-varDefined? env fname) (env-throw env (Exception+
+                                                 (list "Identifier for function" fname
+                                                       "is already used!" )))]
+    [(else (let* ([closure (env-getCurrentClosure env)]
+                  [newClass (Class parent body closure)] ;no idea about name
+                  [n-env (env-defineConst! env fname newClass)]) ;no idea about defineConst
+             (k env (tvoid)) ))] ))
 
 (define (dispValue v) v)
 
