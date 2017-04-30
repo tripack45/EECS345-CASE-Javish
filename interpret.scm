@@ -5,8 +5,9 @@
 ; YAO, Kaiqi
 
 (require racket/trace)
+(require racket/pretty)
 
-(load "functionParser.scm")
+(load "classParser.scm")
 (load "env.scm")
 (load "common.scm")
 (load "datatype.scm")
@@ -16,9 +17,13 @@
 (define (defaultIEHandler env)
   (lambda (ie) (env-throw env (Exception (cadr ie)))))
 
-(define (interpret file)
+(define (interpret file class)
 
-  (define prog (parser file))
+  (define prog (append (parser file)
+                       (list (list 'return (list 'funcall
+                                                 (list 'dot
+                                                       (string->symbol class)
+                                                       'main) )))))
   
   (define env (env-make-cont return-continuation
                              exception-continuation
@@ -57,8 +62,9 @@
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
   (begin
-;    (newline)
-;    (displayln statement)
+    (newline)
+    (pretty-display env)
+    (displayln statement)
 ;    (displayln (if (env-varDefined? env 'x)
 ;                   (value-torvalue (env-getVar env 'x))
 ;                   "Not Exists"))
@@ -72,6 +78,10 @@
 ;    (displayln (env-countClosureDepth env))
   (match statement
     ('() (k env (tvoid))) ; empty statement
+    (('class cname inheritance body) (M-declareClass cname inheritance body env k))
+    (('new cname) (M-operatorNew cname env k))
+    (('dot prefix attr) (M-dot-prop prefix attr env k))
+    (('funcall ('dot prefix method) arglist ...) (M-dot-method prefix method arglist env k))
     (('function fname arglist body) (M-defFunction fname arglist body env k))
     (('funcall fname arglist ...) (M-callFunction fname arglist env k))
     (('+ expr1 expr2) (M-binary-left-oper t/+ expr1 expr2 env k))
@@ -448,13 +458,7 @@
 ;     * There is no need to "destroy" the old one (like layer).
 ;       Some function may be using it / leave it to GC
 
-(define (M-callFunction fname realArg env k)
-
-  (define currentClosure (env-getCurrentClosure env))
-
-  (define k-save (env-cont-saveall env))
-
-  (define (getCallee return)
+(define (M-getCallee fname env return)
     ((lambda (callee)
        (cond
          [(not (Function? callee))
@@ -463,6 +467,11 @@
      (if (env-varDefined? env fname)
          (env-getVar env fname)
          (env-throw env (Exception+ (list "Undefined reference to function" fname))) )))
+
+(define (M-call-on-value callee realArg env k)
+  (define currentClosure (env-getCurrentClosure env))
+
+  (define k-save (env-cont-saveall env))
 
   ; Note order of evaluation is undefined
   ; We assume left-to-right evaluation
@@ -520,12 +529,10 @@
                           [else cont] )))))
     
   
-  (getCallee ; 1
-  (lambda (callee)
-    (let ([formalArg (Function-arg callee)])
+  (let ([formalArg (Function-arg callee)])
       (if (not (equal? (length formalArg) ; 2
                        (length realArg)))
-          (env-throw env (Exception+ (list "Function" fname "called with wrong number of arguments\n"
+          (env-throw env (Exception+ (list "Function called with wrong number of arguments\n"
                                            "Expecting" (length formalArg)
                                            "| Got" (length realArg))))
           (eval-arguments realArg env ; 3
@@ -538,9 +545,136 @@
                  (lambda (calleeEnv)
                    (exec (Function-body callee) calleeEnv
                    (lambda (terminateEnv value) ; -1, no return called internally
-                     (env-return terminateEnv (tvoid)) ))))))))))))))
+                     (env-return terminateEnv (tvoid)) ))))))))))))
+
+(define (M-callFunction fname realArg env k)
+  (M-getCallee fname env
+               (lambda (callable)
+                 (M-call-on-value realArg env k))))
                                                                  
 
+(define (M-declareClass cname inheritance body env k)
+  
+  (define saved-closure (env-getCurrentClosure env))
+
+  (define (M-body body class env k)
+    (if (null? body)
+        (k env class)
+        (M-classdef (car body) class env
+                    (lambda (env class)
+                      (M-body (cdr body) class env k)))))
+
+  ; Return Value:
+  ; Env -> Top level of Env should be the class closure
+  ; Class -> name : cname
+  ;       -> itor : function evaluates to an instance closure chain
+  ;       -> closure : closure chain of that class
+  ;       -> base : base class name
+  (define (M-inheritance inheritance env k)
+    (match inheritance
+      ('() (let* ([env (env-pushClosure env)]
+                  [cls-closure (env-getCurrentClosure env)]
+                  [cls-itor (box (closure-make '()))])
+             (k env (Class cname cls-itor cls-closure '())) ))
+      (('extends base)
+       (if (not (env-varDefined? env cname))
+           (env-throw env (Exception+ (list "Base class" cname "not defined.")))
+           (let ([cls (env-getVar env cname)])
+             (if (not (Class? cls))
+                 (env-throw env (Exception+ (list "Base class identifier" cname
+                                                  "does not refer to a class")))
+                 (let* ([base-closure (Class-closure cls)]
+                        [base-itor (Class-itor cls)]
+                        [env (env-replaceClosur env base-closure)]
+                        [env (env-pushClosure env)]
+                        [cls-closure (env-getCurrentClosure env)]
+                        [cls-itor (box (closure-make (base-itor)))])
+                   (k env (Class cname cls-itor cls-closure base)) )))))
+      (_ (error "Invalid Syntax")) ))
+
+  (M-inheritance inheritance env 
+                 (lambda (env class)
+                   (M-body body class env 
+                           (lambda (env class)
+                            (let* ([env (env-replaceClosure env saved-closure)]
+                                   [env (env-defineConst! env cname class)])
+                              (k env (tvoid)) ))))))
+
+(define (M-classdef stat class env k)
+  
+  (define (M-defineProperty id val class env k)
+    (let* ([class-itor (Class-itor class)]
+           [ub-class-itor (unbox class-itor)])
+      (if (closure-varDefined? ub-class-itor id)
+          (env-throw env (Exception+ (list "Multiple definition of" id
+                                           "in class" (class-name class) )))
+          (if (tvoid? val)
+              (let* ([ub-class-itor (closure-defineVar ub-class-itor id (tvoid))])
+                (begin (set-box! class-itor ub-class-itor)
+                       (k env class))) 
+              (M-stat val env
+                      (lambda (env rst)
+                        (begin (set-box! class-itor
+                                         (closure-defineVar ub-class-itor id rst))
+                               (k env class) )))))))
+
+  (define (M-defineMethod fname arglist body class env k)
+    (M-defFunction fname (cons 'this arglist) body env
+                   (lambda (env rst) (k env class)) ))
+
+  (define (M-defineStaticMethod fname arglist body class env k)
+    (M-defFunction fname arglist body env
+                   (lambda (env rst) (k env class)) ))
+
+  (match stat
+    (('var id) (M-defineProperty id (tvoid) class env k))
+    (('var id val) (M-defineProperty id val class env k))
+    (('function fname arglist body)
+     (M-defineMethod fname arglist body class env k))
+    (('static-function fname arglist body)
+     (M-defineStaticMethod fname arglist body class env k))
+    (_ (begin (display stat)
+              (error "Invalid Class Syntax") ))))
+
+(define (M-operatorNew cname env k)
+  (if (not (env-varDefined? env cname))
+      (env-throw env (Exception+ (list "Class " cname "not defined.")))
+      (let ([cls (env-getVar env cname)])
+        (if (not (Class? cls))
+            (env-throw env (Exception+ (list "Identifier" cname
+                                             "does not refer to a class")))
+            (k env (Object cname (deepcopy (Class-itor cls)))) ))))
+
+(define (M-dot-access prefix attr env k)
+  (M-stat prefix env
+          (lambda (env obj)
+            (let ([closure (cond
+                             [(Object? obj) (unbox (Object-closure obj))]
+                             [(Class? obj) (unbox (Class-closure obj))]
+                             [else '()])])
+              (if (null? closure)
+                  (env-throw (Exception+ (list prefix "is not an object or class")))
+                  (if (not (closure-varDefined? closure attr))
+                      (env-throw (Exception+ (list "Object" prefix "of class"
+                                                   (Object-class prefix)
+                                                   "does not have an property named"
+                                                   attr) ))
+                      (k env obj (closure-getVar closure attr)) ))))))
+
+(define (M-dot-prop prefix attr env k)
+  (M-dot-access prefix attr env
+                (lambda (env obj field)
+                      (k env field) )))
+
+(define (M-dot-method prefix method arglist env k)
+  (M-dot-access prefix method env
+                (lambda (env item field)
+                  (cond
+                    [(Class? item) (M-call-on-value field arglist env k)]
+                    [(Object? item)
+                     (M-call-on-value field (cons object arglist) env k)]
+                    [else (error "Unreachable Code")] ))))
+                
 
 (define (dispValue v) v)
 

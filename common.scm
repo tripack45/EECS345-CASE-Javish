@@ -251,4 +251,12 @@
     [(memberOf? (car list) (cdr list)) #f]
     [else (unique? (cdr list))] ))
     
-
+(define (deepcopy list)
+  (cond
+    [(null? list) '()]
+    [(box? list) (box (deepcopy (unbox list)))]
+    [(list? list) (cons (deepcopy (car list))
+                        (deepcopy (cdr list)))]
+    [else list]))
+                  
+      

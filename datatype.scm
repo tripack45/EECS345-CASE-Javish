@@ -74,6 +74,59 @@
 (define (Function-body fun) (dict-get (value-v fun) 'body))
 (define (Function-closure fun) (dict-get (value-v fun) 'closure))
 
+; Class Type
+; A "Class" type contains information related to a class
+; These involves:
+; Base class names
+; Static Variables
+; Static Methods
+; Constructors
+; Non-static Methods
+(define (Class cname itor closure base)
+  (value-make (dict-make+ (list 'cname 'itor 'closure 'base)
+                          (list cname itor closure base) )
+              'Class))
+
+(define (Class? cls)
+  (equal? (value-type cls) 'Class))
+
+(define (Class-name class)
+  (dict-get (value-v class) 'cname))
+
+(define (Class-itor class)
+  (dict-get (value-v class) 'itor))
+
+(define (Class-closure class)
+  (dict-get (value-v class) 'closure))
+
+(define (Class-base class)
+  (dict-get (value-v class) 'base))
+
+(define (Class-update-itor+ class l)
+  (dict-update+ class itor l))
+
+(define (Class-update-closure+ class l)
+  (dict-update+ class closure l))
+
+; Object Type [Class Instance]
+(define (Object cname closure)
+  (value-make (dict-make+ (list 'class 'closure)
+                          (list cname closure))
+              'Object))
+
+(define (Object? instance)
+  (equal? (value-type instance) 'Object))
+
+(define (ObjectOf? instance cname)
+  (and (equal? (value-type instance) 'Object)
+       (equal? (Object-class instance) cname) ))
+
+(define (Object-class instance)
+  (dict-get (value-v instance) 'class))
+
+(define (Object-closure instance)
+  (dict-get (value-v instance) 'closure))
+
 ; Data-type to string
 
 (define (tostring value)
