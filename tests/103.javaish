@@ -1,0 +1,23 @@
+class A {
+  var x = 5;
+
+  function swap(& a, & b) {
+    var temp = a;
+    a = b;
+    b = temp;
+  }
+
+  static function main() {
+    var y = 10;
+    var sum = 0;
+    var a = new A();
+
+    a.swap(a.x, y);
+    sum = a.x * 100 + y;
+    a.x = 1;
+    y = 2;
+    a.swap(a.x, y);
+    sum = sum + a.x * 10 + y;
+    return sum;
+  }
+}
