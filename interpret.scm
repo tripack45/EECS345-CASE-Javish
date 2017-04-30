@@ -62,9 +62,9 @@
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
   (begin
-    (newline)
+;    (newline)
     ;(pretty-display env)
-    (displayln statement)
+;    (displayln statement)
 ;    (displayln (if (env-varDefined? env 'x)
 ;                   (value-torvalue (env-getVar env 'x))
 ;                   "Not Exists"))
@@ -177,13 +177,12 @@
           (lambda (env rst)
             (let ([rst (if (Object? rst) (deepcopy rst) rst)])
               (if (symbol? sym)
-                  (if (not (env-varDefined? env sym))
-                      (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
-                      (let ([lval (env-getVar env sym)])
-                        (if (value-lvalue? lval)
-                            (let ([env (env-assign! env lval rst)])
-                              (k env rst) )
-                            (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) )))
+                  (M-symbol sym env
+                            (lambda (env lval)
+                              (if (value-lvalue? lval)
+                                  (let ([env (env-assign! env lval rst)])
+                                    (k env rst) )
+                                  (env-throw env (Exception+ (list "Cannot assign to rvalue" sym)) ))))
                   (M-stat sym env
                           (lambda (env lval)
                             (if (value-lvalue? lval)
@@ -475,14 +474,12 @@
 ;       Some function may be using it / leave it to GC
 
 (define (M-getCallee fname env return)
-    ((lambda (callee)
-       (cond
-         [(not (Function? callee))
-          (env-throw env (Exception+ (list fname "is not a function!")))]
-         [else (return callee)] ))
-     (if (env-varDefined? env fname)
-         (env-getVar env fname)
-         (env-throw env (Exception+ (list "Undefined reference to function" fname))) )))
+  (M-symbol fname env 
+            (lambda (env callee)
+              (cond
+                [(not (Function? callee))
+                 (env-throw env (Exception+ (list fname "is not a function!")))]
+                [else (return callee)] ))))
 
 (define (M-call-on-value callee realArg this env k)
   (define isMethod (Function-method? callee))
@@ -574,7 +571,11 @@
 (define (M-callFunction fname realArg env k)
   (M-getCallee fname env
                (lambda (callable)
-                 (M-call-on-value realArg '() env k))))
+                 (if (Function-method? callable)
+                     (M-symbol 'this env
+                               (lambda (env this)
+                                 (M-call-on-value callable realArg this env k)))
+                     (M-call-on-value callable realArg '() env k)))))
                                                                  
 
 (define (M-declareClass cname inheritance body env k)
