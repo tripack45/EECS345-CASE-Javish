@@ -14,13 +14,23 @@
   (dict-make+ (list 'v 'type 'attr)
               (list val type (dict-make))))
 
+(define (value-attr val)
+  (dict-get val 'attr))
+
+(define (value-update-attr val f)
+  (dict-update+ val 'attr f) )
+
 (define (lvalue-make boxed-rvalue)
   (let ([rvalue (unbox boxed-rvalue)])
-    (dict-make+ (list 'v 'type 'attr)
-                (list (value-v rvalue)
-                      (value-type rvalue)
-                      (dict-make+ (list 'lvalue)
-                                  (list boxed-rvalue) )))))
+   (value-attr-add rvalue 'lvalue boxed-rvalue)))
+
+(define (value-attr-exist? value key)
+  (dict-exist? (dict-get value 'attr) key))
+
+(define (value-attr-add value key aval)
+  (value-update-attr value
+                     (lambda (attr)
+                       (dict-add attr key aval))))
 
 (define (value-v value) (dict-get value 'v))
 

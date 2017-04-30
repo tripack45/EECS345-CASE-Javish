@@ -67,12 +67,29 @@
                           (list arglist body closure) )
                'Function) )
 
+(define (Function-method arglist body closure)
+  (value-attr-add (Function arglist body closure)
+                  'Method #t))
+
+(define (Function-static arglist body closure)
+  (value-attr-add (Function arglist body closure)
+                  'Static-Metod #t))
+
+(define (Function-setMethod fun)
+  (value-attr-add fun 'Method #t))
+
+(define (Function-setStatic fun)
+  (value-attr-add fun 'Static-Method #t))
+
 (define (Function? value)
   (equal? (value-type value) 'Function))
 
 (define (Function-arg fun) (dict-get (value-v fun) 'arg))
 (define (Function-body fun) (dict-get (value-v fun) 'body))
 (define (Function-closure fun) (dict-get (value-v fun) 'closure))
+
+(define (Function-method? fun) (value-attr-exist? fun 'Method))
+(define (Function-static? fun) (value-attr-exist? fun 'Static-Method))
 
 ; Class Type
 ; A "Class" type contains information related to a class

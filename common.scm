@@ -134,7 +134,8 @@
       (match (split+ dict (dict-cmpkey key))
         ((fore back)
          (if (null? back)
-             (iException+ 'missing-key (list "Dictionary: retrieved key" key "does not exists."))
+             (begin (displayln dict)
+                    (iException+ 'missing-key (list "Dictionary: retrieved key" key "does not exists.")))
              (cadr (car back)) )))))
 
 (define (dict-add dict key value)

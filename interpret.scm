@@ -82,7 +82,7 @@
     (('new cname) (M-operatorNew cname env k))
     (('dot prefix attr) (M-dot-prop prefix attr env k))
     (('funcall ('dot prefix method) arglist ...) (M-dot-method prefix method arglist env k))
-    (('function fname arglist body) (M-defFunction fname arglist body env k))
+    (('function fname arglist body) (M-defFunction fname arglist body '() env k))
     (('funcall fname arglist ...) (M-callFunction fname arglist env k))
     (('+ expr1 expr2) (M-binary-left-oper t/+ expr1 expr2 env k))
     (('- expr1 expr2) (M-binary-left-oper t/- expr1 expr2 env k))
@@ -418,7 +418,7 @@
 
 ; We need to verfiy that there is no name confilct in arguments...
 ; This ensures the binding of arguments always succeeds.
-(define (M-defFunction fname arg body env k)
+(define (M-defFunction fname arg body attr env k)
 
   (define (packArguments argList)
     (cond
@@ -439,8 +439,9 @@
                             (list "Identifier for function" fname
                                   "is already used!" )))
             (let* ([closure (env-getCurrentClosure env)]
-                   [newFunction (Function arglist body closure)]
-                   [n-env (env-defineConst! env fname newFunction)])
+                   [Function (Function arglist body closure)]
+                   [Function (if (not (null? attr)) (value-attr-add Function attr #t) Function)]
+                   [n-env (env-defineConst! env fname Function)])
               (k env (tvoid)) )))))
   
 ; Steps in a function call:
@@ -476,6 +477,9 @@
          (env-throw env (Exception+ (list "Undefined reference to function" fname))) )))
 
 (define (M-call-on-value callee realArg this env k)
+  (define isMethod (Function-method? callee))
+  (define isStatic (Function-static? callee))
+  
   (define currentClosure (env-getCurrentClosure env))
 
   (define k-save (env-cont-saveall env))
@@ -543,8 +547,8 @@
                                            "| Got" (length realArg))))
           (eval-arguments realArg env ; 3
           (lambda (evaledEnv realArgValue)
-            (let* ([formalArg (if (null? this) formalArg (cons 'this formalArg))]
-                   [realArgValue (if (null? this) realArgValue (cons this realArgValue))] ; "this" argument of oop
+            (let* ([formalArg (if isMethod (cons 'this formalArg) formalArg )]
+                   [realArgValue (if isMethod (cons this realArgValue) realArgValue)] ; "this" argument of oop
                    [calleePreClosure (env-replaceClosure evaledEnv (Function-closure callee))]
                    [calleeClosureEnv (env-pushClosure calleePreClosure)]) ; 4 5
               (bindArguments formalArg realArgValue calleeClosureEnv ; 6
@@ -627,11 +631,11 @@
                                (k env class) )))))))
 
   (define (M-defineMethod fname arglist body class env k)
-    (M-defFunction fname arglist body env
+    (M-defFunction fname arglist body 'Method env
                    (lambda (env rst) (k env class)) ))
 
   (define (M-defineStaticMethod fname arglist body class env k)
-    (M-defFunction fname arglist body env
+    (M-defFunction fname arglist body 'Static-Method env
                    (lambda (env rst) (k env class)) ))
 
   (match stat
@@ -687,11 +691,16 @@
 
 (define (M-dot-method prefix method arglist env k)
   (M-dot-access prefix method env
-                (lambda (env item field)
+                (lambda (env item function)
                   (cond
-                    [(Class? item) (M-call-on-value field arglist '() env k)]
+                    [(Class? item)
+                     (if (not (Function-static? function))
+                         (env-throw env (Exception+ (list method "is not a static method")))
+                         (M-call-on-value function arglist '() env k))]
                     [(Object? item)
-                     (M-call-on-value field arglist item env k)]
+                     (if (not (Function-method? function))
+                         (env-throw env (Exception+ (list method "is not a class method")))
+                         (M-call-on-value function arglist item env k))]
                     [else (error "Unreachable Code")] ))))
                 
 
