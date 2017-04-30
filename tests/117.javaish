@@ -19,3 +19,4 @@ class A {
     return (a.x + a.y + a.z) * 100 + (b.x + b.y + b.z);
   }
 }
+
