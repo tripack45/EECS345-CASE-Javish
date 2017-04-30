@@ -1,0 +1,12 @@
+class A {
+  var x;
+
+  A(val) {
+    x = val;
+  }
+
+  static function main() {
+    var a = new A(10);
+    return a.x;
+  }
+}
