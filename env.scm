@@ -34,9 +34,12 @@
   (dict-get (dict-get value 'attr) 'lvalue))
 
 (define (value-torvalue lvalue)
-  (if (value-lvalue? lvalue)
-      (unbox (dict-get (dict-get lvalue 'attr) 'lvalue))
-      lvalue))
+  (let ([rvalue (if (value-lvalue? lvalue)
+                    (unbox (dict-get (dict-get lvalue 'attr) 'lvalue))
+                    lvalue)])
+    (if (Object? rvalue)
+        (deepcopy rvalue)
+        rvalue )) )
 
 ; ========= 'Env' class =============
 ; Closure is boxed object

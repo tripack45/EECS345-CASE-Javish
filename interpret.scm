@@ -113,7 +113,7 @@
     (('begin _ ...) (M-block (cdr statement) env k))
     (('break) (M-break env k))
     (('continue) (M-continue env k))
-    ((cons x y) (error "Unrecogonized identifier"))
+    ((cons x y) (begin (newline) (display statement) (error "Unrecogonized identifier")))
     ((? number? x) (M-num-literal x env k))
     (sym (M-symbol statement env k))
     (_ (Exception "Match failed")) )))
@@ -168,14 +168,21 @@
 ; Unlike C/Java assignment returns rvalue!
 (define (M-assignment sym expr env k)
   (M-stat expr env 
-  (lambda (e rst)
-    (if (not (env-varDefined? e sym))
-        (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
-        (let ([lval (env-getVar e sym)])
-          (if (value-lvalue? lval)
-              (let ([n-env (env-assign! e lval rst)])
-                (k n-env rst) )
-              (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) ))))))
+          (lambda (env rst)
+            (if (symbol? sym)
+                (if (not (env-varDefined? env sym))
+                    (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
+                    (let ([lval (env-getVar env sym)])
+                      (if (value-lvalue? lval)
+                          (let ([env (env-assign! env lval rst)])
+                            (k env rst) )
+                          (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) )))
+                (M-stat sym env
+                        (lambda (env lval)
+                          (if (value-lvalue? lval)
+                              (let ([env (env-assign! env lval rst)])
+                                (k env rst) )
+                              (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) ))) ))))
 
 (define (M-return expr env k)
   (M-stat expr env 
@@ -468,7 +475,7 @@
          (env-getVar env fname)
          (env-throw env (Exception+ (list "Undefined reference to function" fname))) )))
 
-(define (M-call-on-value callee realArg env k)
+(define (M-call-on-value callee realArg this env k)
   (define currentClosure (env-getCurrentClosure env))
 
   (define k-save (env-cont-saveall env))
@@ -527,7 +534,6 @@
                           [(eq? key 'continue) (modify-break/continue cont)]
                           [(eq? key 'break) (modify-break/continue cont)]
                           [else cont] )))))
-    
   
   (let ([formalArg (Function-arg callee)])
       (if (not (equal? (length formalArg) ; 2
@@ -537,7 +543,9 @@
                                            "| Got" (length realArg))))
           (eval-arguments realArg env ; 3
           (lambda (evaledEnv realArgValue)
-            (let* ([calleePreClosure (env-replaceClosure evaledEnv (Function-closure callee))]
+            (let* ([formalArg (if (null? this) formalArg (cons 'this formalArg))]
+                   [realArgValue (if (null? this) realArgValue (cons this realArgValue))] ; "this" argument of oop
+                   [calleePreClosure (env-replaceClosure evaledEnv (Function-closure callee))]
                    [calleeClosureEnv (env-pushClosure calleePreClosure)]) ; 4 5
               (bindArguments formalArg realArgValue calleeClosureEnv ; 6
                (lambda (bindedEnv v)
@@ -550,7 +558,7 @@
 (define (M-callFunction fname realArg env k)
   (M-getCallee fname env
                (lambda (callable)
-                 (M-call-on-value realArg env k))))
+                 (M-call-on-value realArg '() env k))))
                                                                  
 
 (define (M-declareClass cname inheritance body env k)
@@ -619,7 +627,7 @@
                                (k env class) )))))))
 
   (define (M-defineMethod fname arglist body class env k)
-    (M-defFunction fname (cons 'this arglist) body env
+    (M-defFunction fname arglist body env
                    (lambda (env rst) (k env class)) ))
 
   (define (M-defineStaticMethod fname arglist body class env k)
@@ -646,21 +654,32 @@
             (k env (Object cname (deepcopy (Class-itor cls)))) ))))
 
 (define (M-dot-access prefix attr env k)
-  (M-stat prefix env
-          (lambda (env obj)
-            (let ([closure (cond
-                             [(Object? obj) (unbox (Object-closure obj))]
-                             [(Class? obj) (unbox (Class-closure obj))]
-                             [else '()])])
-              (if (null? closure)
-                  (env-throw (Exception+ (list prefix "is not an object or class")))
-                  (if (not (closure-varDefined? closure attr))
-                      (env-throw (Exception+ (list "Object" prefix "of class"
-                                                   (Object-class prefix)
-                                                   "does not have an property named"
-                                                   attr) ))
-                      (k env obj (closure-getVar closure attr)) ))))))
 
+  (define (throw-not-found)
+    (env-throw env (Exception+ (list "Object" prefix "of class"
+                                     (Object-class obj)
+                                     "does not have an property/method named"
+                                     attr) )))
+  (M-stat prefix env
+          (lambda (env item)
+            (cond
+              [(Class? item)
+               (let ([closure (unbox (Class-closure item))])
+                 (if (not (closure-varDefined? closure attr))
+                     (throw-not-found)
+                     (k env item (closure-getVar closure attr))))]
+              [(Object? item)
+               (let ([obj-closure (unbox (Object-closure item))])
+                 (if (closure-varDefined? obj-closure attr)
+                     (k env item (closure-getVar obj-closure attr))
+                     (M-stat (Object-class item) env
+                             (lambda (env cls)
+                               (if (Class? cls)
+                                   (let ([closure (unbox (Class-closure cls))])
+                                     (k env item (closure-getVar closure attr)) )
+                                   (begin (displayln cls) (error "Unreachable code")) )))))]
+              [env-throw (Excetption+ (list prefix "is not an object or class"))] ))))
+                     
 (define (M-dot-prop prefix attr env k)
   (M-dot-access prefix attr env
                 (lambda (env obj field)
@@ -670,9 +689,9 @@
   (M-dot-access prefix method env
                 (lambda (env item field)
                   (cond
-                    [(Class? item) (M-call-on-value field arglist env k)]
+                    [(Class? item) (M-call-on-value field arglist '() env k)]
                     [(Object? item)
-                     (M-call-on-value field (cons object arglist) env k)]
+                     (M-call-on-value field arglist item env k)]
                     [else (error "Unreachable Code")] ))))
                 
 
