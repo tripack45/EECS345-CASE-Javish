@@ -62,9 +62,9 @@
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
   (begin
-    (newline)
-    (pretty-display env)
-    (displayln statement)
+;    (newline)
+;    (pretty-display env)
+;    (displayln statement)
 ;    (displayln (if (env-varDefined? env 'x)
 ;                   (value-torvalue (env-getVar env 'x))
 ;                   "Not Exists"))
@@ -169,26 +169,28 @@
 (define (M-assignment sym expr env k)
   (M-stat expr env 
           (lambda (env rst)
-            (if (symbol? sym)
-                (if (not (env-varDefined? env sym))
-                    (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
-                    (let ([lval (env-getVar env sym)])
-                      (if (value-lvalue? lval)
-                          (let ([env (env-assign! env lval rst)])
-                            (k env rst) )
-                          (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) )))
-                (M-stat sym env
-                        (lambda (env lval)
-                          (if (value-lvalue? lval)
+            (let ([rst (if (Object? rst) (deepcopy rst) rst)])
+              (if (symbol? sym)
+                  (if (not (env-varDefined? env sym))
+                      (env-throw env (Exception+ (list "Assigning to undefined variable" sym))) 
+                      (let ([lval (env-getVar env sym)])
+                        (if (value-lvalue? lval)
+                            (let ([env (env-assign! env lval rst)])
+                              (k env rst) )
+                            (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) )))
+                  (M-stat sym env
+                          (lambda (env lval)
+                            (if (value-lvalue? lval)
                               (let ([env (env-assign! env lval rst)])
                                 (k env rst) )
-                              (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) ))) ))))
+                              (env-throw env (Exception+ (list "Cannot assign to rvalue" sym))) ))))))))
 
 (define (M-return expr env k)
-  (M-stat expr env 
+  (M-stat expr env
           (lambda (e rst)
-            (env-return e (value-torvalue rst)) )))
-
+            (let ([rst (if (Object? rst) (deepcopy rst) rst)])
+              (env-return e (value-torvalue rst)) ))))
+  
 (define (M-if condition expr1 expr2 env k)
   (M-stat condition env 
   (lambda (e b)
@@ -511,7 +513,11 @@
                              (Exception "Cannot take reference of rvalues")))
               ((lambda (newEnv)
                  (bindArguments (cdr formalArg) (cdr realArg) newEnv k))
-               (env-defineVar! env (car formalArg) (car realArg)) )))))
+               (if (equal? (car formalArg) 'this)
+                   (env-defineVar! env (car formalArg) (car realArg))
+                   (if (Object? (car realArg))
+                       (env-defineVar! env (car formalArg) (deepcopy (car realArg)))
+                       (env-defineVar! env (car formalArg) (car realArg)) )))))))
 
   (define (exit-call env k)
     (k (env-replaceClosure (env-cont-restoreall env k-save) currentClosure)))
