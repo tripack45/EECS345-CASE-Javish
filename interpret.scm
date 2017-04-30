@@ -62,9 +62,9 @@
 ; This is a cps function, the continuation is given in k
 (define (M-stat statement env k)
   (begin
-;    (newline)
-;    (pretty-display env)
-;    (displayln statement)
+    (newline)
+    ;(pretty-display env)
+    (displayln statement)
 ;    (displayln (if (env-varDefined? env 'x)
 ;                   (value-torvalue (env-getVar env 'x))
 ;                   "Not Exists"))
@@ -147,7 +147,13 @@
     [(equal? sym 'true) (k env (bool #t))]
     [(equal? sym 'false) (k env (bool #f))]
     [else (if (not (env-varDefined? env sym))
-              (env-throw env (Exception+ (list "Use of undefined variable" sym)))
+              (if (env-varDefined? env 'this)
+                  (let* ([obj (env-getVar env 'this)] ; check object closure
+                         [obj-closure (Object-closure obj)])
+                    (if (closure-varDefinedRecursive? obj-closure sym)
+                        (k env (closure-getVarRecursive obj-closure sym))
+                        (env-throw env (Exception+ (list "Use of undefined variable/attribute" sym))) ))
+                  (env-throw env (Exception+ (list "Use of undefined variable" sym))))
               (let ([var (env-getVar env sym)])
                 (cond
                   [(tvoid? var) (env-throw env (Exception+ (list "Use of uninitialized value:" sym)))]
@@ -436,7 +442,7 @@
         (env-throw env (Exception+
                         (list "Error in defining function" fname "\n"
                               "Argument list contains two identical names") ))
-        (if (env-varDefined? env fname)
+        (if (env-varDefinedInClosure? env fname)
             (env-throw env (Exception+
                             (list "Identifier for function" fname
                                   "is already used!" )))
@@ -595,18 +601,18 @@
                   [cls-itor (box (closure-make '()))])
              (k env (Class cname cls-itor cls-closure '())) ))
       (('extends base)
-       (if (not (env-varDefined? env cname))
-           (env-throw env (Exception+ (list "Base class" cname "not defined.")))
-           (let ([cls (env-getVar env cname)])
+       (if (not (env-varDefined? env base))
+           (env-throw env (Exception+ (list "Base class" base "not defined.")))
+           (let ([cls (env-getVar env base)])
              (if (not (Class? cls))
-                 (env-throw env (Exception+ (list "Base class identifier" cname
+                 (env-throw env (Exception+ (list "Base class identifier" base "of class" cname
                                                   "does not refer to a class")))
                  (let* ([base-closure (Class-closure cls)]
                         [base-itor (Class-itor cls)]
-                        [env (env-replaceClosur env base-closure)]
+                        [env (env-replaceClosure env base-closure)]
                         [env (env-pushClosure env)]
                         [cls-closure (env-getCurrentClosure env)]
-                        [cls-itor (box (closure-make (base-itor)))])
+                        [cls-itor (box (closure-make base-itor))])
                    (k env (Class cname cls-itor cls-closure base)) )))))
       (_ (error "Invalid Syntax")) ))
 
@@ -665,30 +671,50 @@
 
 (define (M-dot-access prefix attr env k)
 
-  (define (throw-not-found)
-    (env-throw env (Exception+ (list "Object" prefix "of class"
-                                     (Object-class obj)
-                                     "does not have an property/method named"
-                                     attr) )))
-  (M-stat prefix env
-          (lambda (env item)
-            (cond
-              [(Class? item)
-               (let ([closure (unbox (Class-closure item))])
-                 (if (not (closure-varDefined? closure attr))
-                     (throw-not-found)
-                     (k env item (closure-getVar closure attr))))]
-              [(Object? item)
-               (let ([obj-closure (unbox (Object-closure item))])
-                 (if (closure-varDefined? obj-closure attr)
-                     (k env item (closure-getVar obj-closure attr))
-                     (M-stat (Object-class item) env
-                             (lambda (env cls)
-                               (if (Class? cls)
-                                   (let ([closure (unbox (Class-closure cls))])
-                                     (k env item (closure-getVar closure attr)) )
-                                   (begin (displayln cls) (error "Unreachable code")) )))))]
-              [env-throw (Excetption+ (list prefix "is not an object or class"))] ))))
+  (define (throw-not-found obj)
+    (cond
+      [(Object? obj) (env-throw env (Exception+ (list "Object" prefix "of class"
+                                                      (Object-class obj)
+                                                      "does not have an property/method named"
+                                                      attr) ))]
+      [(Class? obj) (env-throw env (Exception+ (list "Class" prefix "has no static attribute/method" attr)))]
+      [else (error "Unreachable code")]))
+
+  (define (getPrefixObject prefix env k)
+    (if (not (equal? prefix 'super))
+        (M-stat prefix env k)
+        (if (not (env-varDefined? env 'this))
+            (env-throw env (Exception+ (list "'super' used in non-class context")))
+            (let* ([this (env-getVar env 'this)]
+                   [currObjClosure (Object-closure this)]
+                   [class (Object-class this)]
+                   [cls (env-getVar env class)] ; the actuall class
+                   [base (Class-base cls)] ; base class name
+                   [base-closure (closure-prev (unbox currObjClosure))] ) ; base obj closure
+              (k env (Object base base-closure)) ))))
+
+  (getPrefixObject prefix env 
+                    (lambda (env item)
+                      (cond
+                        [(Class? item)
+                         (let ([closure (unbox (Class-closure item))])
+                           (if (not (closure-varDefinedRecursive? closure attr))
+                               (throw-not-found item)
+                               (k env item (closure-getVarRecursive closure attr))))]
+                        [(Object? item)
+                         (let ([obj-closure (unbox (Object-closure item))])
+                           (if (closure-varDefinedRecursive? obj-closure attr)
+                               (k env item (closure-getVarRecursive obj-closure attr))
+                               (M-stat (Object-class item) env
+                                       (lambda (env cls)
+                                         (if (Class? cls)
+                                             (let ([closure (unbox (Class-closure cls))])
+                                               (if (closure-varDefinedRecursive? closure attr)
+                                                   (k env item (closure-getVarRecursive closure attr))
+                                                   (throw-not-found item) ))
+                                             (begin (displayln cls) (error "Unreachable code")) )))))]
+                        [env-throw env (Exception+ (list prefix "is not an object or class"))] ))))
+
                      
 (define (M-dot-prop prefix attr env k)
   (M-dot-access prefix attr env

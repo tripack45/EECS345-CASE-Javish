@@ -184,6 +184,15 @@
      (layer-assign! closure lval value)
      closure ))
 
+(define (closure-varDefinedRecursive? closure id)
+  (cond
+    [(null? closure) #f]
+    [(box? closure) (closure-varDefinedRecursive?
+                     (unbox closure) id)]
+    [(closure-varDefined? closure id) #t]
+    [else (closure-varDefinedRecursive?
+          (closure-prev closure) id)] ))
+
 (define (closure-varDefined? closure id)
   (define (varDefined? stack id)
     (cond
@@ -191,6 +200,14 @@
       [(layer-varDefined? (car stack) id) #t]
       [else (varDefined? (cdr stack) id)] ))
   (varDefined? (dict-get closure 'stack) id) )
+
+(define (closure-getVarRecursive closure id)
+  (cond
+    [(box? closure) (closure-getVarRecursive (unbox closure) id)]
+    [(null? closure)
+     (iException+ 'undefined-ref (list "Env Variable undeclared:" id))]
+    [(closure-varDefined? closure id) (closure-getVar closure id)]
+    [else (closure-getVarRecursive (closure-prev closure) id)] ))
 
 (define (closure-getVar closure id)
   (define (getVar stack id)
